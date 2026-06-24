@@ -150,7 +150,7 @@ class SmartImport extends Page implements HasForms
 
             try {
                 $newPath = 'documents/' . basename($preview['_file_path']);
-                Storage::move($preview['_file_path'], $newPath);
+                Storage::disk('public')->move($preview['_file_path'], $newPath);
 
                 $document = $service->import(
                     $newPath,
@@ -194,7 +194,7 @@ class SmartImport extends Page implements HasForms
     public function cancelPreview(): void
     {
         foreach ($this->previews as $preview) {
-            Storage::delete($preview['_file_path'] ?? '');
+            Storage::disk('public')->delete($preview['_file_path'] ?? '');
         }
         $this->previews = [];
         $this->files    = [];

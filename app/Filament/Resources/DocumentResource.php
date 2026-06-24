@@ -91,16 +91,12 @@ class DocumentResource extends Resource
                 Tables\Columns\TextColumn::make('title')->label('Tiêu đề')->searchable()->sortable()->wrap(),
                 Tables\Columns\TextColumn::make('temple.name')->label('Chùa')->searchable()->sortable()
                     ->placeholder('—'),
-                Tables\Columns\TextColumn::make('monastic.full_name')->label('Tăng Ni')->searchable()->sortable()
-                    ->placeholder('—')->toggleable(),
                 Tables\Columns\TextColumn::make('province_name')->label('Tỉnh')->sortable(false)->toggleable()
                     ->getStateUsing(fn (Document $record) => $record->temple?->province?->name
                         ?? $record->monastic?->province?->name
                         ?? $record->monastic?->temple?->province?->name),
                 Tables\Columns\BadgeColumn::make('file_type')->label('Loại')
                     ->colors(['danger' => 'pdf', 'info' => 'docx']),
-                Tables\Columns\TextColumn::make('file_size')->label('Dung lượng')
-                    ->formatStateUsing(fn ($state) => $state > 0 ? number_format($state / 1024, 1) . ' KB' : '-'),
                 Tables\Columns\BadgeColumn::make('status')->label('Trạng thái')
                     ->colors([
                         'gray'    => 'pending',
@@ -115,7 +111,6 @@ class DocumentResource extends Resource
                         'failed'     => 'Lỗi',
                         default      => $state,
                     }),
-                Tables\Columns\TextColumn::make('uploader.name')->label('Người upload')->toggleable(),
                 Tables\Columns\TextColumn::make('created_at')->label('Ngày upload')
                     ->dateTime('d/m/Y H:i')->sortable()->toggleable(),
             ])

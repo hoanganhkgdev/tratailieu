@@ -67,11 +67,6 @@ class TempleResource extends Resource
                     ->label('Mô tả')
                     ->rows(4)
                     ->columnSpanFull(),
-                Forms\Components\FileUpload::make('image')
-                    ->label('Ảnh đại diện')
-                    ->image()
-                    ->directory('temples')
-                    ->columnSpanFull(),
             ]),
         ]);
     }
@@ -80,7 +75,7 @@ class TempleResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\ImageColumn::make('image')->label('Ảnh')->circular(),
+                Tables\Columns\TextColumn::make('id')->label('STT')->sortable(),
                 Tables\Columns\TextColumn::make('name')->label('Tên')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('type')->label('Loại')->badge()
                     ->formatStateUsing(fn ($state) => Temple::$typeLabels[$state] ?? $state),
@@ -106,7 +101,7 @@ class TempleResource extends Resource
                     Tables\Actions\DeleteBulkAction::make()->label('Xóa đã chọn'),
                 ]),
             ])
-            ->defaultSort('name');
+            ->defaultSort('id', 'desc');
     }
 
     public static function getPages(): array

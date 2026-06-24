@@ -89,7 +89,7 @@ PROMPT;
 
         return Document::create([
             'temple_id'   => $temple->id,
-            'uploaded_by' => Auth::id(),
+            'uploaded_by' => Auth::id() ?? \App\Models\User::first()?->id,
             'title'       => $data['document_title'] ?? $fileName,
             'description' => $data['document_description'] ?? null,
             'file_path'   => $filePath,

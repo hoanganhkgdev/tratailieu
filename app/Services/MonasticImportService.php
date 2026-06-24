@@ -115,10 +115,10 @@ PROMPT;
             'full_name'                  => $data['full_name'] ?? 'Chưa xác định',
             'religious_name'             => $data['religious_name'] ?? null,
             'date_of_birth'              => $data['date_of_birth'] ?? null,
-            'gender'                     => $data['gender'] ?? 'nam',
+            'gender'                     => in_array($data['gender'] ?? '', ['nam', 'nu']) ? $data['gender'] : 'nam',
             'ethnicity'                  => $data['ethnicity'] ?? null,
             'nationality'                => $data['nationality'] ?? 'Việt Nam',
-            'id_type'                    => $data['id_type'] ?? null,
+            'id_type'                    => in_array($data['id_type'] ?? '', ['cmnd', 'cccd', 'ho_chieu', 'chung_nhan_tang_ni', 'khac']) ? $data['id_type'] : null,
             'id_number'                  => $data['id_number'] ?? null,
             'id_issued_date'             => $data['id_issued_date'] ?? null,
             'id_issued_place'            => $data['id_issued_place'] ?? null,
@@ -135,7 +135,7 @@ PROMPT;
             'current_position'           => $data['current_position'] ?? null,
             'appointment_date'           => $data['appointment_date'] ?? null,
             'concurrent_position'        => $data['concurrent_position'] ?? null,
-            'activity_scope'             => $data['activity_scope'] ?? null,
+            'activity_scope'             => in_array($data['activity_scope'] ?? '', ['toan_quoc', 'mot_so_tinh', 'mot_tinh']) ? $data['activity_scope'] : null,
             'activity_scope_detail'      => $data['activity_scope_detail'] ?? null,
             'notes'                      => $data['notes'] ?? null,
             'education_level'            => $data['education_level'] ?? null,
@@ -145,7 +145,7 @@ PROMPT;
             'languages'                  => $data['languages'] ?? null,
             'phone'                      => $data['phone'] ?? null,
             'email'                      => $data['email'] ?? null,
-            'status'                     => $data['status'] ?? 'dang_hoat_dong',
+            'status'                     => in_array($data['status'] ?? '', ['dang_hoat_dong', 'huu_tri', 'cach_chuc', 'hoan_tuc', 'tan_xuat', 'da_chet']) ? $data['status'] : 'dang_hoat_dong',
         ]);
 
         foreach ($data['activities'] ?? [] as $activity) {
