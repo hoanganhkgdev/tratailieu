@@ -75,15 +75,13 @@ class TempleResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('id')->label('STT')->sortable(),
-                Tables\Columns\TextColumn::make('name')->label('Tên')->searchable()->sortable(),
-                Tables\Columns\TextColumn::make('type')->label('Loại')->badge()
+                Tables\Columns\TextColumn::make('id')->label('STT')->alignCenter(),
+                Tables\Columns\TextColumn::make('name')->label('Tên')->searchable(),
+                Tables\Columns\TextColumn::make('type')->label('Loại')->badge()->alignCenter()
                     ->formatStateUsing(fn ($state) => Temple::$typeLabels[$state] ?? $state),
-                Tables\Columns\TextColumn::make('province.name')->label('Tỉnh/Thành')->sortable()->searchable(),
-                Tables\Columns\TextColumn::make('head_monk')->label('Trụ trì')->searchable()->toggleable(),
-                Tables\Columns\TextColumn::make('documents_count')->label('Tài liệu')
-                    ->counts('documents')->sortable(),
-                Tables\Columns\IconColumn::make('is_active')->label('HĐ')->boolean(),
+                Tables\Columns\TextColumn::make('province.name')->label('Tỉnh/Thành')->searchable()->alignCenter(),
+                Tables\Columns\TextColumn::make('head_monk')->label('Trụ trì')->searchable()->toggleable()->alignCenter(),
+                Tables\Columns\IconColumn::make('is_active')->label('HĐ')->boolean()->alignCenter(),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('province_id')->label('Tỉnh/Thành')
