@@ -46,7 +46,7 @@ class ImportTempleFileJob implements ShouldQueue
             if ($disk->exists($newPath)) {
                 $newPath = 'documents/' . pathinfo($fileName, PATHINFO_FILENAME) . '_' . uniqid() . '.' . $ext;
             }
-            $disk->copy($this->filePath, $newPath);
+            $disk->move($this->filePath, $newPath);
 
             $document = $service->import($newPath, $fileName, $ext, $data);
             ProcessDocumentJob::dispatch($document);
