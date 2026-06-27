@@ -31,6 +31,12 @@ class CleanImportsCommand extends Command
             }
         }
 
+        $tmpFiles = \Illuminate\Support\Facades\Storage::files('livewire-tmp');
+        if (count($tmpFiles) > 0) {
+            \Illuminate\Support\Facades\Storage::delete($tmpFiles);
+            $this->line("Đã xóa " . count($tmpFiles) . " file tạm Livewire.");
+        }
+
         $this->info('Dọn dẹp xong.');
         return self::SUCCESS;
     }
