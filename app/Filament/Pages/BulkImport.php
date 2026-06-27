@@ -4,18 +4,15 @@ namespace App\Filament\Pages;
 
 use App\Jobs\ImportTempleFileJob;
 use App\Models\Province;
-use Filament\Forms;
-use Filament\Forms\Concerns\InteractsWithForms;
-use Filament\Forms\Contracts\HasForms;
-use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Storage;
+use Livewire\WithFileUploads;
 use ZipArchive;
 
-class BulkImport extends Page implements HasForms
+class BulkImport extends Page
 {
-    use InteractsWithForms;
+    use WithFileUploads;
 
     protected static ?string $navigationIcon  = 'heroicon-o-arrow-up-tray';
     protected static ?string $navigationLabel = 'Import hàng loạt';
@@ -24,52 +21,33 @@ class BulkImport extends Page implements HasForms
     protected static ?int    $navigationSort  = 4;
     protected static string  $view            = 'filament.pages.bulk-import';
 
-    public ?string $zipFile    = null;
-    public ?string $provinceId = null;
-    public int     $fileCount  = 0;
-    public bool    $imported   = false;
+    public $zipFile;
+    public $provinceId = '';
+    public int  $fileCount = 0;
+    public bool $imported  = false;
 
-    public function form(Form $form): Form
+    public function getProvincesProperty()
     {
-        return $form->schema([
-            Forms\Components\Section::make('Upload thư mục tài liệu')
-                ->description('Nén thư mục chứa file PDF/DOCX thành file ZIP rồi upload lên. Hệ thống sẽ tự giải nén và import.')
-                ->schema([
-                    Forms\Components\Select::make('provinceId')
-                        ->label('Tỉnh/Thành phố')
-                        ->options(Province::orderBy('name')->pluck('name', 'id'))
-                        ->searchable()
-                        ->required(),
-                    Forms\Components\FileUpload::make('zipFile')
-                        ->label('File ZIP')
-                        ->acceptedFileTypes(['application/zip', 'application/x-zip-compressed', 'application/octet-stream', 'multipart/x-zip'])
-                        ->maxSize(1024 * 1024)
-                        ->directory('imports/bulk')
-                        ->required(),
-                ]),
-        ]);
+        return Province::orderBy('name')->get(['id', 'name']);
     }
 
     public function import(): void
     {
-        $state = $this->form->getState();
-
-        $zipPath = $state['zipFile'] ?? null;
-        $provinceId = $state['provinceId'] ?? null;
-
-        if (! $zipPath || ! $provinceId) {
+        if (! $this->zipFile || ! $this->provinceId) {
             Notification::make()->title('Vui lòng chọn tỉnh và upload file ZIP')->warning()->send();
             return;
         }
 
-        $province = Province::find($provinceId);
+        $province = Province::find($this->provinceId);
         if (! $province) {
             Notification::make()->title('Tỉnh không hợp lệ')->danger()->send();
             return;
         }
 
         $disk = Storage::disk('public');
-        $absoluteZipPath = $disk->path($zipPath);
+
+        $storedPath = $this->zipFile->store('imports/bulk', 'public');
+        $absoluteZipPath = $disk->path($storedPath);
 
         $zip = new ZipArchive();
         if ($zip->open($absoluteZipPath) !== true) {
@@ -84,7 +62,7 @@ class BulkImport extends Page implements HasForms
         $zip->extractTo($absoluteExtractDir);
         $zip->close();
 
-        $disk->delete($zipPath);
+        $disk->delete($storedPath);
 
         $files = collect($disk->allFiles($extractDir))
             ->filter(function ($f) {
@@ -116,9 +94,8 @@ class BulkImport extends Page implements HasForms
     public function resetForm(): void
     {
         $this->zipFile = null;
-        $this->provinceId = null;
+        $this->provinceId = '';
         $this->fileCount = 0;
         $this->imported = false;
-        $this->form->fill();
     }
 }
