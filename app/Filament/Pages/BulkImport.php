@@ -42,8 +42,8 @@ class BulkImport extends Page implements HasForms
                         ->required(),
                     Forms\Components\FileUpload::make('zipFile')
                         ->label('File ZIP')
-                        ->acceptedFileTypes(['application/zip', 'application/x-zip-compressed'])
-                        ->maxSize(500 * 1024)
+                        ->acceptedFileTypes(['application/zip', 'application/x-zip-compressed', 'application/octet-stream', 'multipart/x-zip'])
+                        ->maxSize(1024 * 1024)
                         ->directory('imports/bulk')
                         ->required(),
                 ]),
