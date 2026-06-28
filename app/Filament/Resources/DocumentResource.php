@@ -88,7 +88,7 @@ class DocumentResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('title')->label('Tiêu đề')->searchable()->sortable()->wrap(),
+                Tables\Columns\TextColumn::make('row_number')->label('STT')->rowIndex()->alignCenter(),
                 Tables\Columns\TextColumn::make('temple.name')->label('Chùa')->searchable()->sortable()
                     ->placeholder('—'),
                 Tables\Columns\TextColumn::make('province_name')->label('Tỉnh')->sortable(false)->toggleable()

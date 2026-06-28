@@ -75,7 +75,7 @@ class TempleResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('id')->label('STT')->alignCenter(),
+                Tables\Columns\TextColumn::make('row_number')->label('STT')->rowIndex()->alignCenter(),
                 Tables\Columns\TextColumn::make('name')->label('Tên')->searchable(),
                 Tables\Columns\TextColumn::make('type')->label('Loại')->badge()->alignCenter()
                     ->formatStateUsing(fn ($state) => Temple::$typeLabels[$state] ?? $state),

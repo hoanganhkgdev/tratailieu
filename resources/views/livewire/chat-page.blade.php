@@ -88,68 +88,8 @@
                         {{ $msg['role'] === 'user'
                             ? 'bg-amber-700 text-white rounded-br-sm'
                             : 'bg-white text-gray-800 shadow-sm border border-gray-100 rounded-bl-sm' }}">
-                        {!! nl2br(e($msg['content'])) !!}
+                        {!! preg_replace('#/storage/documents/([^\s<"\']+)#', '<a href="/storage/documents/$1" target="_blank" class="text-amber-700 underline hover:text-amber-900">📥 Tải tài liệu</a>', nl2br(e($msg['content']))) !!}
                     </div>
-
-                    @if(!empty($msg['sources']))
-                    <div class="mt-2 space-y-1">
-                        <p class="text-xs text-gray-400 font-medium ml-1">Nguồn tham khảo:</p>
-                        @foreach($msg['sources'] as $source)
-                            @if(($source['type'] ?? 'document') === 'monastic')
-                            <div class="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs">
-                                <div class="flex items-center gap-2">
-                                    <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-                                    </svg>
-                                    <div class="flex-1 min-w-0">
-                                        <p class="font-medium text-emerald-900 truncate">
-                                            {{ $source['name'] }}{{ $source['religious_name'] ? ' (' . $source['religious_name'] . ')' : '' }}
-                                        </p>
-                                        <p class="text-emerald-600 truncate">
-                                            {{ collect([$source['rank'], $source['position'], $source['temple'], $source['province']])->filter()->implode(' — ') }}
-                                        </p>
-                                    </div>
-                                    <span class="text-emerald-500 uppercase font-bold shrink-0">Tăng Ni</span>
-                                </div>
-
-                                @if(!empty($source['documents']))
-                                <div class="mt-2 pt-2 border-t border-emerald-200 flex flex-wrap gap-1.5">
-                                    @foreach($source['documents'] as $doc)
-                                    <a href="{{ $doc['download_url'] }}" target="_blank"
-                                        class="flex items-center gap-1 bg-white border border-emerald-300 rounded-md px-2 py-1 text-emerald-700 hover:bg-emerald-100 transition">
-                                        <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                                        </svg>
-                                        <span class="truncate max-w-[10rem]">{{ $doc['title'] }}</span>
-                                        <span class="uppercase font-bold text-emerald-400">{{ $doc['file_type'] }}</span>
-                                    </a>
-                                    @endforeach
-                                </div>
-                                @endif
-                            </div>
-                            @else
-                            <a href="{{ $source['download_url'] }}" target="_blank"
-                                class="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs hover:bg-amber-100 transition group">
-                                <svg class="w-4 h-4 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
-                                </svg>
-                                <div class="flex-1 min-w-0">
-                                    <p class="font-medium text-amber-900 truncate">{{ $source['title'] }}</p>
-                                    <p class="text-amber-600 truncate">
-                                        {{ collect([$source['monastic'] ?? null, $source['temple'] ?? null, $source['province'] ?? null])->filter()->implode(' — ') }}
-                                    </p>
-                                </div>
-                                <span class="text-amber-500 uppercase font-bold">{{ $source['file_type'] }}</span>
-                                <svg class="w-3.5 h-3.5 text-amber-400 group-hover:text-amber-600 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                                </svg>
-                            </a>
-                            @endif
-                        @endforeach
-                    </div>
-                    @endif
                 </div>
 
                 @if($msg['role'] === 'user')
