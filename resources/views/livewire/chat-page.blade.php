@@ -88,7 +88,7 @@
                         {{ $msg['role'] === 'user'
                             ? 'bg-amber-700 text-white rounded-br-sm'
                             : 'bg-white text-gray-800 shadow-sm border border-gray-100 rounded-bl-sm' }}">
-                        {!! preg_replace('#(https?://[^\s<"\']+/documents/[^\s<"\']+)#', '<a href="$1" target="_blank" class="text-amber-700 underline hover:text-amber-900">📥 Tải tài liệu</a>', nl2br(e($msg['content']))) !!}
+                        {!! preg_replace('#(https?://[^\s<"\']+/(?:tu-vien|tang-ni|documents)/[^\s<"\']+)#', '<a href="$1" target="_blank" class="text-amber-700 underline hover:text-amber-900">📥 Tải tài liệu</a>', nl2br(e($msg['content']))) !!}
                     </div>
                 </div>
 
