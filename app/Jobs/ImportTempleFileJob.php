@@ -42,9 +42,12 @@ class ImportTempleFileJob implements ShouldQueue
             $data = $service->analyze($this->filePath, $ext);
             $data['province_id'] = $data['province_id'] ?? $this->provinceId;
 
-            $newPath = 'documents/' . $fileName;
+            $province = Province::find($data['province_id']);
+            $provinceSlug = $province ? \Illuminate\Support\Str::slug($province->name) : 'chua-xac-dinh';
+
+            $newPath = "tu-vien/{$provinceSlug}/{$fileName}";
             if ($disk->exists($newPath)) {
-                $newPath = 'documents/' . pathinfo($fileName, PATHINFO_FILENAME) . '_' . uniqid() . '.' . $ext;
+                $newPath = "tu-vien/{$provinceSlug}/" . pathinfo($fileName, PATHINFO_FILENAME) . '_' . uniqid() . '.' . $ext;
             }
             $disk->move($this->filePath, $newPath);
 

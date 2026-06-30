@@ -41,7 +41,7 @@ class Document extends Model
 
     public function getDownloadUrlAttribute(): string
     {
-        return Storage::url($this->file_path);
+        return Storage::disk('public')->url($this->file_path);
     }
 
     public function isReady(): bool

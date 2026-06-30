@@ -191,7 +191,9 @@ PROMPT;
         }
 
         $fileName = $data['_file_name'] ?? basename($tempPath);
-        $newPath  = 'documents/' . Str::random(12) . '_' . $fileName;
+        $province = $monastic->province_id ? Province::find($monastic->province_id) : null;
+        $provinceSlug = $province ? Str::slug($province->name) : 'chua-xac-dinh';
+        $newPath  = "tang-ni/{$provinceSlug}/" . Str::random(12) . '_' . $fileName;
 
         Storage::disk('public')->move($tempPath, $newPath);
 

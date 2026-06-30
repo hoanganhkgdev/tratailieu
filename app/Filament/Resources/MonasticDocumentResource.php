@@ -40,12 +40,14 @@ class MonasticDocumentResource extends Resource
                     ->relationship('monastic', 'full_name')
                     ->searchable()
                     ->preload()
+                    ->live()
                     ->required(),
                 Forms\Components\Select::make('temple_id')
                     ->label('Chùa / Tự viện (nếu có liên quan)')
                     ->relationship('temple', 'name')
                     ->searchable()
-                    ->preload(),
+                    ->preload()
+                    ->live(),
                 Forms\Components\TextInput::make('title')
                     ->label('Tiêu đề')
                     ->required()
@@ -62,7 +64,14 @@ class MonasticDocumentResource extends Resource
                     ->required()
                     ->acceptedFileTypes(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
                     ->maxSize(50 * 1024)
-                    ->directory('documents')
+                    ->directory(function (Forms\Get $get) {
+                        $monastic = \App\Models\Monastic::find($get('monastic_id'));
+                        $temple = \App\Models\Temple::find($get('temple_id'));
+                        $province = $monastic?->province ?? $temple?->province ?? $monastic?->temple?->province;
+                        $slug = $province ? \Illuminate\Support\Str::slug($province->name) : 'chua-xac-dinh';
+
+                        return "tang-ni/{$slug}";
+                    })
                     ->preserveFilenames()
                     ->afterStateUpdated(function ($state, Forms\Set $set) {
                         if ($state) {
@@ -122,7 +131,7 @@ class MonasticDocumentResource extends Resource
                 Tables\Actions\Action::make('download')
                     ->label('Tải xuống')
                     ->icon('heroicon-o-arrow-down-tray')
-                    ->url(fn (Document $record) => Storage::url($record->file_path))
+                    ->url(fn (Document $record) => Storage::disk('public')->url($record->file_path))
                     ->openUrlInNewTab(),
                 Tables\Actions\Action::make('reprocess')
                     ->label('Xử lý lại')
@@ -132,7 +141,7 @@ class MonasticDocumentResource extends Resource
                     ->action(fn (Document $record) => ProcessDocumentJob::dispatch($record)),
                 Tables\Actions\EditAction::make()->label('Sửa'),
                 Tables\Actions\DeleteAction::make()->label('Xóa')
-                    ->after(fn (Document $record) => Storage::delete($record->file_path)),
+                    ->after(fn (Document $record) => Storage::disk('public')->delete($record->file_path)),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

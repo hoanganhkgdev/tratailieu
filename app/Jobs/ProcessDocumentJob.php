@@ -24,8 +24,7 @@ class ProcessDocumentJob implements ShouldQueue
         $this->document->update(['status' => 'processing']);
 
         try {
-            $fullPath = $parser->resolvePath($this->document->file_path);
-            $this->document->update(['file_size' => filesize($fullPath) ?: 0]);
+            $this->document->update(['file_size' => Storage::disk('public')->size($this->document->file_path) ?: 0]);
 
             $text = $parser->extractText($this->document->file_path, $this->document->file_type);
 

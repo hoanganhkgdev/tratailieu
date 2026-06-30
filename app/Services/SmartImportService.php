@@ -7,6 +7,7 @@ use App\Models\Province;
 use App\Models\Temple;
 use Gemini\Laravel\Facades\Gemini;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class SmartImportService
@@ -85,7 +86,7 @@ PROMPT;
             ]
         );
 
-        $fileSize = filesize($this->parser->resolvePath($filePath)) ?: 0;
+        $fileSize = Storage::disk('public')->size($filePath) ?: 0;
 
         return Document::create([
             'temple_id'   => $temple->id,

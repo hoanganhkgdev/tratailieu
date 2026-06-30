@@ -7,7 +7,9 @@ use App\Models\Province;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Livewire\WithFileUploads;
+use Symfony\Component\Finder\Finder;
 use ZipArchive;
 
 class BulkImport extends Page
@@ -44,33 +46,39 @@ class BulkImport extends Page
             return;
         }
 
-        $disk = Storage::disk('public');
-
-        $storedPath = $this->zipFile->store('imports/bulk', 'public');
-        $absoluteZipPath = $disk->path($storedPath);
+        // ZipArchive cần 1 path local thật — file upload của Livewire luôn nằm tạm
+        // trên đĩa local trước khi được lưu vào disk chính (S3/R2), nên dùng thẳng path đó.
+        $localZipPath = $this->zipFile->getRealPath();
 
         $zip = new ZipArchive();
-        if ($zip->open($absoluteZipPath) !== true) {
+        if ($zip->open($localZipPath) !== true) {
             Notification::make()->title('Không thể mở file ZIP')->danger()->send();
             return;
         }
 
-        $extractDir = 'imports/' . \Illuminate\Support\Str::slug($province->name) . '_' . uniqid();
-        $absoluteExtractDir = $disk->path($extractDir);
-        @mkdir($absoluteExtractDir, 0755, true);
-
-        $zip->extractTo($absoluteExtractDir);
+        $localExtractDir = sys_get_temp_dir() . '/bulk_import_' . uniqid();
+        @mkdir($localExtractDir, 0755, true);
+        $zip->extractTo($localExtractDir);
         $zip->close();
 
-        $disk->delete($storedPath);
+        $remoteDir = 'imports/' . Str::slug($province->name) . '_' . uniqid();
+        $disk = Storage::disk('public');
+        $files = collect();
 
-        $files = collect($disk->allFiles($extractDir))
-            ->filter(function ($f) {
-                $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
-                $name = basename($f);
-                return in_array($ext, ['pdf', 'docx']) && ! str_starts_with($name, '.');
-            })
-            ->values();
+        foreach (Finder::create()->files()->in($localExtractDir) as $localFile) {
+            $ext  = strtolower($localFile->getExtension());
+            $name = $localFile->getFilename();
+
+            if (! in_array($ext, ['pdf', 'docx']) || str_starts_with($name, '.')) {
+                continue;
+            }
+
+            $remotePath = $remoteDir . '/' . $name;
+            $disk->put($remotePath, file_get_contents($localFile->getRealPath()));
+            $files->push($remotePath);
+        }
+
+        $this->deleteDirectory($localExtractDir);
 
         if ($files->isEmpty()) {
             Notification::make()->title('Không tìm thấy file PDF/DOCX trong ZIP')->warning()->send();
@@ -89,6 +97,19 @@ class BulkImport extends Page
             ->body("Tỉnh: {$province->name}. Hệ thống sẽ tự động xử lý nền.")
             ->success()
             ->send();
+    }
+
+    private function deleteDirectory(string $dir): void
+    {
+        if (! is_dir($dir)) {
+            return;
+        }
+
+        foreach (Finder::create()->in($dir)->depth('== 0') as $item) {
+            $item->isDir() ? $this->deleteDirectory($item->getRealPath()) : @unlink($item->getRealPath());
+        }
+
+        @rmdir($dir);
     }
 
     public function resetForm(): void

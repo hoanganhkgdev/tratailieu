@@ -10,54 +10,34 @@ class DocumentParserService
 {
     public function extractText(string $filePath, string $fileType): string
     {
-        $fullPath = $this->resolvePath($filePath);
+        if (! Storage::disk('public')->exists($filePath)) {
+            throw new \RuntimeException("File không tồn tại: {$filePath}");
+        }
+
+        $content = Storage::disk('public')->get($filePath);
 
         return match ($fileType) {
-            'pdf'  => $this->parsePdf($fullPath),
-            'docx' => $this->parseDocx($fullPath),
+            'pdf'  => $this->parsePdf($content),
+            'docx' => $this->parseDocx($content),
             default => throw new \InvalidArgumentException("Unsupported file type: {$fileType}"),
         };
     }
 
-    public function resolvePath(string $filePath): string
-    {
-        // Nếu là absolute path thì dùng thẳng
-        if (str_starts_with($filePath, '/') && file_exists($filePath)) {
-            return $filePath;
-        }
-
-        // Thử từng disk theo thứ tự ưu tiên
-        foreach (['public', 'local'] as $disk) {
-            $path = Storage::disk($disk)->path($filePath);
-            if (file_exists($path)) {
-                return $path;
-            }
-        }
-
-        throw new \RuntimeException("File không tồn tại: {$filePath}");
-    }
-
-    private function parsePdf(string $path): string
+    private function parsePdf(string $content): string
     {
         $parser = new Parser();
-
-        // parseContent đọc trực tiếp từ binary, không cần extension
-        $pdf = $parser->parseContent(file_get_contents($path));
+        $pdf = $parser->parseContent($content);
 
         return $pdf->getText();
     }
 
-    private function parseDocx(string $path): string
+    private function parseDocx(string $content): string
     {
-        // PHPWord detect format từ extension — nếu file không có .docx thì copy sang file tạm
-        if (strtolower(pathinfo($path, PATHINFO_EXTENSION)) !== 'docx') {
-            $tmp = tempnam(sys_get_temp_dir(), 'phpword_') . '.docx';
-            copy($path, $tmp);
-            $phpWord = IOFactory::load($tmp, 'Word2007');
-            @unlink($tmp);
-        } else {
-            $phpWord = IOFactory::load($path, 'Word2007');
-        }
+        // PHPWord cần 1 file thật trên đĩa để đọc, nên ghi nội dung ra file tạm trước
+        $tmp = tempnam(sys_get_temp_dir(), 'phpword_') . '.docx';
+        file_put_contents($tmp, $content);
+        $phpWord = IOFactory::load($tmp, 'Word2007');
+        @unlink($tmp);
 
         $text    = '';
 
