@@ -1,4 +1,4 @@
-<x-filament-panels::page>
+<x-filament-panels::page wire:poll.5s>
 
     <div class="grid grid-cols-2 gap-4">
         <x-filament::section>
@@ -32,8 +32,9 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left text-gray-500 border-b">
+                        <th class="py-2 pr-4">Trạng thái</th>
                         <th class="py-2 pr-4">Job</th>
-                        <th class="py-2 pr-4">Queue</th>
+                        <th class="py-2 pr-4">Chi tiết</th>
                         <th class="py-2 pr-4">Lần thử</th>
                         <th class="py-2 pr-4">Tạo lúc</th>
                     </tr>
@@ -41,10 +42,20 @@
                 <tbody>
                     @foreach($this->pendingJobs as $job)
                     <tr class="border-b border-gray-100">
-                        <td class="py-2 pr-4 font-medium">{{ class_basename($job->job_name) }}</td>
-                        <td class="py-2 pr-4">{{ $job->queue }}</td>
+                        <td class="py-2 pr-4 whitespace-nowrap">
+                            @if($job->is_processing)
+                                <span class="inline-flex items-center gap-1.5 text-amber-600 font-medium">
+                                    <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                                    Đang xử lý
+                                </span>
+                            @else
+                                <span class="text-gray-400">Chờ</span>
+                            @endif
+                        </td>
+                        <td class="py-2 pr-4 font-medium whitespace-nowrap">{{ class_basename($job->job_name) }}</td>
+                        <td class="py-2 pr-4 text-gray-600">{{ $job->detail ?? '—' }}</td>
                         <td class="py-2 pr-4">{{ $job->attempts }}</td>
-                        <td class="py-2 pr-4 text-gray-400">{{ $job->created_human }}</td>
+                        <td class="py-2 pr-4 text-gray-400 whitespace-nowrap">{{ $job->created_human }}</td>
                     </tr>
                     @endforeach
                 </tbody>
@@ -76,6 +87,7 @@
                 <thead>
                     <tr class="text-left text-gray-500 border-b">
                         <th class="py-2 pr-4">Job</th>
+                        <th class="py-2 pr-4">Chi tiết</th>
                         <th class="py-2 pr-4">Lỗi</th>
                         <th class="py-2 pr-4">Thời gian</th>
                         <th class="py-2 pr-4">Hành động</th>
@@ -85,6 +97,7 @@
                     @foreach($this->failedJobs as $job)
                     <tr class="border-b border-gray-100">
                         <td class="py-2 pr-4 font-medium whitespace-nowrap">{{ class_basename($job->job_name) }}</td>
+                        <td class="py-2 pr-4 text-gray-600 whitespace-nowrap">{{ $job->detail ?? '—' }}</td>
                         <td class="py-2 pr-4 text-red-600 max-w-md">{{ $job->exception_short }}</td>
                         <td class="py-2 pr-4 text-gray-400 whitespace-nowrap">{{ $job->failed_at }}</td>
                         <td class="py-2 pr-4 whitespace-nowrap">

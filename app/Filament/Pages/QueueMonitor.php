@@ -24,6 +24,8 @@ class QueueMonitor extends Page
             ->map(function ($job) {
                 $payload = json_decode($job->payload, true);
                 $job->job_name = $payload['displayName'] ?? 'Unknown';
+                $job->detail = $this->extractJobDetail($payload);
+                $job->is_processing = ! is_null($job->reserved_at);
                 $job->created_human = \Carbon\Carbon::createFromTimestamp($job->created_at)->diffForHumans();
                 return $job;
             });
@@ -38,9 +40,50 @@ class QueueMonitor extends Page
             ->map(function ($job) {
                 $payload = json_decode($job->payload, true);
                 $job->job_name = $payload['displayName'] ?? 'Unknown';
+                $job->detail = $this->extractJobDetail($payload);
                 $job->exception_short = \Illuminate\Support\Str::limit(explode("\n", $job->exception)[0], 150);
                 return $job;
             });
+    }
+
+    /**
+     * Giải mã object job đã serialize để lấy tên file / thông tin đang xử lý —
+     * payload mặc định của Laravel chỉ có tên class, không đủ để biết job đang
+     * chạy file nào, nên cần đọc property private qua Reflection.
+     */
+    private function extractJobDetail(array $payload): ?string
+    {
+        $serialized = $payload['data']['command'] ?? null;
+
+        if (! $serialized) {
+            return null;
+        }
+
+        try {
+            $job = unserialize($serialized);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (! is_object($job)) {
+            return null;
+        }
+
+        $reflection = new \ReflectionObject($job);
+        $parts = [];
+
+        foreach ($reflection->getProperties() as $property) {
+            $property->setAccessible(true);
+            $value = $property->getValue($job);
+
+            if (is_string($value) && $value !== '') {
+                $parts[] = basename($value);
+            } elseif (is_object($value) && method_exists($value, 'getKey')) {
+                $parts[] = class_basename($value) . ' #' . $value->getKey();
+            }
+        }
+
+        return ! empty($parts) ? implode(' · ', $parts) : null;
     }
 
     public function getStatsProperty(): array
