@@ -107,44 +107,53 @@ PROMPT;
         return $data;
     }
 
+    private function str($value): ?string
+    {
+        if (is_array($value)) {
+            return implode(', ', array_filter(array_map(fn ($v) => is_scalar($v) ? (string) $v : null, $value)));
+        }
+
+        return $value !== null ? (string) $value : null;
+    }
+
     public function import(array $data): Monastic
     {
         $monastic = Monastic::create([
             'temple_id'                  => $data['temple_id'] ?? null,
             'province_id'                => $data['province_id'] ?? null,
-            'full_name'                  => $data['full_name'] ?? 'Chưa xác định',
-            'religious_name'             => $data['religious_name'] ?? null,
+            'full_name'                  => $this->str($data['full_name'] ?? null) ?: 'Chưa xác định',
+            'religious_name'             => $this->str($data['religious_name'] ?? null),
             'date_of_birth'              => $data['date_of_birth'] ?? null,
             'gender'                     => in_array($data['gender'] ?? '', ['nam', 'nu']) ? $data['gender'] : 'nam',
-            'ethnicity'                  => $data['ethnicity'] ?? null,
-            'nationality'                => $data['nationality'] ?? 'Việt Nam',
+            'ethnicity'                  => $this->str($data['ethnicity'] ?? null),
+            'nationality'                => $this->str($data['nationality'] ?? null) ?: 'Việt Nam',
             'id_type'                    => in_array($data['id_type'] ?? '', ['cmnd', 'cccd', 'ho_chieu', 'chung_nhan_tang_ni', 'khac']) ? $data['id_type'] : null,
-            'id_number'                  => $data['id_number'] ?? null,
+            'id_number'                  => $this->str($data['id_number'] ?? null),
             'id_issued_date'             => $data['id_issued_date'] ?? null,
-            'id_issued_place'            => $data['id_issued_place'] ?? null,
-            'hometown'                   => $data['hometown'] ?? null,
-            'permanent_address'          => $data['permanent_address'] ?? null,
-            'current_address'            => $data['current_address'] ?? null,
-            'monastic_cert_number'       => $data['monastic_cert_number'] ?? null,
+            'id_issued_place'            => $this->str($data['id_issued_place'] ?? null),
+            'hometown'                   => $this->str($data['hometown'] ?? null),
+            'permanent_address'          => $this->str($data['permanent_address'] ?? null),
+            'current_address'            => $this->str($data['current_address'] ?? null),
+            'monastic_cert_number'       => $this->str($data['monastic_cert_number'] ?? null),
             'monastic_cert_date'         => $data['monastic_cert_date'] ?? null,
-            'religion'                   => $data['religion'] ?? 'Phật giáo',
-            'religious_organization'     => $data['religious_organization'] ?? null,
-            'sect'                       => $data['sect'] ?? null,
+            'religion'                   => $this->str($data['religion'] ?? null) ?: 'Phật giáo',
+            'religious_organization'     => $this->str($data['religious_organization'] ?? null),
+            'sect'                       => $this->str($data['sect'] ?? null),
             'classifications'            => $data['classifications'] ?? [],
             'rank'                       => $data['rank'] ?? null,
-            'current_position'           => $data['current_position'] ?? null,
+            'current_position'           => $this->str($data['current_position'] ?? null),
             'appointment_date'           => $data['appointment_date'] ?? null,
-            'concurrent_position'        => $data['concurrent_position'] ?? null,
+            'concurrent_position'        => $this->str($data['concurrent_position'] ?? null),
             'activity_scope'             => in_array($data['activity_scope'] ?? '', ['toan_quoc', 'mot_so_tinh', 'mot_tinh']) ? $data['activity_scope'] : null,
-            'activity_scope_detail'      => $data['activity_scope_detail'] ?? null,
-            'notes'                      => $data['notes'] ?? null,
-            'education_level'            => $data['education_level'] ?? null,
-            'professional_qualification' => $data['professional_qualification'] ?? null,
-            'buddhist_education_level'   => $data['buddhist_education_level'] ?? null,
-            'training_institutions'      => $data['training_institutions'] ?? null,
-            'languages'                  => $data['languages'] ?? null,
-            'phone'                      => $data['phone'] ?? null,
-            'email'                      => $data['email'] ?? null,
+            'activity_scope_detail'      => $this->str($data['activity_scope_detail'] ?? null),
+            'notes'                      => $this->str($data['notes'] ?? null),
+            'education_level'            => $this->str($data['education_level'] ?? null),
+            'professional_qualification' => $this->str($data['professional_qualification'] ?? null),
+            'buddhist_education_level'   => $this->str($data['buddhist_education_level'] ?? null),
+            'training_institutions'      => $this->str($data['training_institutions'] ?? null),
+            'languages'                  => $this->str($data['languages'] ?? null),
+            'phone'                      => $this->str($data['phone'] ?? null),
+            'email'                      => $this->str($data['email'] ?? null),
             'status'                     => in_array($data['status'] ?? '', ['dang_hoat_dong', 'huu_tri', 'cach_chuc', 'hoan_tuc', 'tan_xuat', 'da_chet']) ? $data['status'] : 'dang_hoat_dong',
         ]);
 
@@ -156,11 +165,11 @@ PROMPT;
             $monastic->activities()->create([
                 'from_date'    => $activity['from_date'] ?? null,
                 'to_date'      => $activity['to_date'] ?? null,
-                'place'        => $activity['place'] ?? null,
-                'position'     => $activity['position'] ?? null,
-                'term_period'  => $activity['term_period'] ?? null,
-                'commendation' => $activity['commendation'] ?? null,
-                'violation'    => $activity['violation'] ?? null,
+                'place'        => $this->str($activity['place'] ?? null),
+                'position'     => $this->str($activity['position'] ?? null),
+                'term_period'  => $this->str($activity['term_period'] ?? null),
+                'commendation' => $this->str($activity['commendation'] ?? null),
+                'violation'    => $this->str($activity['violation'] ?? null),
             ]);
         }
 
@@ -189,7 +198,7 @@ PROMPT;
         $document = Document::create([
             'temple_id'   => $monastic->temple_id,
             'monastic_id' => $monastic->id,
-            'uploaded_by' => Auth::id(),
+            'uploaded_by' => Auth::id() ?? \App\Models\User::first()?->id,
             'title'       => 'Phiếu thông tin Tăng Ni: ' . $monastic->full_name,
             'description' => 'Phiếu số 3 gốc dùng để nhập hồ sơ này bằng AI.',
             'file_path'   => $newPath,
