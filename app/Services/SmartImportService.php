@@ -79,7 +79,7 @@ PROMPT;
             [
                 'province_id'   => $province->id,
                 'name'          => $templeName,
-                'type'          => $data['temple_type'] ?? 'chua',
+                'type'          => $this->normalizeTempleType($data['temple_type'] ?? null),
                 'address'       => $data['address'] ?? null,
                 'head_monk'     => $data['head_monk'] ?? null,
                 'is_active'     => true,
@@ -99,6 +99,31 @@ PROMPT;
             'file_size'   => $fileSize,
             'status'      => 'pending',
         ]);
+    }
+
+    private function normalizeTempleType(?string $type): string
+    {
+        $valid = ['chua', 'tu_vien', 'tinh_xa', 'thien_vien', 'tinh_that'];
+
+        if (in_array($type, $valid)) {
+            return $type;
+        }
+
+        // Map các giá trị AI có thể trả về bằng tiếng Việt hoặc biến thể khác
+        $map = [
+            'chùa'        => 'chua',
+            'tự viện'     => 'tu_vien',
+            'tu vien'     => 'tu_vien',
+            'tịnh xá'     => 'tinh_xa',
+            'tinh xa'     => 'tinh_xa',
+            'thiền viện'  => 'thien_vien',
+            'thien vien'  => 'thien_vien',
+            'tịnh thất'   => 'tinh_that',
+            'tinh that'   => 'tinh_that',
+        ];
+
+        $normalized = mb_strtolower(trim($type ?? ''));
+        return $map[$normalized] ?? 'chua';
     }
 
     private function fallback(string $filePath): array
