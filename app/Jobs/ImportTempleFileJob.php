@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\Document;
 use App\Models\Province;
 use App\Services\SmartImportService;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -13,8 +14,8 @@ class ImportTempleFileJob implements ShouldQueue
 {
     use Queueable;
 
-    public int $timeout = 180;
-    public int $tries   = 2;
+    public int $timeout = 300;
+    public int $tries   = 1;
 
     public function __construct(
         private string $filePath,
@@ -48,6 +49,11 @@ class ImportTempleFileJob implements ShouldQueue
             // Nếu file đã nằm trong tu-vien/ thì dùng ngay, không cần move
             if (str_starts_with($this->filePath, 'tu-vien/')) {
                 $newPath = $this->filePath;
+                // Tránh import trùng khi reimport-all dispatch file đã có document
+                if (Document::where('file_path', $newPath)->exists()) {
+                    Log::info("Import: bỏ qua (đã import rồi) - {$fileName}");
+                    return;
+                }
             } else {
                 $newPath = "tu-vien/{$provinceSlug}/" . pathinfo($fileName, PATHINFO_FILENAME) . '_' . uniqid() . '.' . $ext;
                 $disk->move($this->filePath, $newPath);
