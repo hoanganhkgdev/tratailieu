@@ -45,11 +45,13 @@ class ImportTempleFileJob implements ShouldQueue
             $province = Province::find($data['province_id']);
             $provinceSlug = $province ? \Illuminate\Support\Str::slug($province->name) : 'chua-xac-dinh';
 
-            $newPath = "tu-vien/{$provinceSlug}/{$fileName}";
-            if ($disk->exists($newPath)) {
+            // Nếu file đã nằm trong tu-vien/ thì dùng ngay, không cần move
+            if (str_starts_with($this->filePath, 'tu-vien/')) {
+                $newPath = $this->filePath;
+            } else {
                 $newPath = "tu-vien/{$provinceSlug}/" . pathinfo($fileName, PATHINFO_FILENAME) . '_' . uniqid() . '.' . $ext;
+                $disk->move($this->filePath, $newPath);
             }
-            $disk->move($this->filePath, $newPath);
 
             $document = $service->import($newPath, $fileName, $ext, $data);
             ProcessDocumentJob::dispatch($document);
