@@ -74,17 +74,15 @@ PROMPT;
         }
 
         $templeName = $data['temple_name'] ?? 'Chưa xác định';
-        $temple = Temple::firstOrCreate(
-            ['slug' => Str::slug($templeName)],
-            [
-                'province_id'   => $province->id,
-                'name'          => $templeName,
-                'type'          => $this->normalizeTempleType($data['temple_type'] ?? null),
-                'address'       => $data['address'] ?? null,
-                'head_monk'     => $data['head_monk'] ?? null,
-                'is_active'     => true,
-            ]
-        );
+        $temple = Temple::create([
+            'province_id' => $province->id,
+            'name'        => $templeName,
+            'slug'        => Str::slug($templeName) . '-' . Str::random(6),
+            'type'        => $this->normalizeTempleType($data['temple_type'] ?? null),
+            'address'     => $data['address'] ?? null,
+            'head_monk'   => $data['head_monk'] ?? null,
+            'is_active'   => true,
+        ]);
 
         $fileSize = Storage::disk('public')->size($filePath) ?: 0;
 
