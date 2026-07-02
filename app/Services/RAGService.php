@@ -4,7 +4,7 @@ namespace App\Services;
 
 use App\Models\DocumentChunk;
 use App\Models\Monastic;
-use Gemini\Laravel\Facades\Gemini;
+use OpenAI\Laravel\Facades\OpenAI;
 use Illuminate\Support\Collection;
 
 class RAGService
@@ -69,8 +69,11 @@ Trả lời bằng tiếng Việt, rõ ràng và súc tích.
 === TRẢ LỜI ===
 PROMPT;
 
-        $response = Gemini::generativeModel("gemini-2.5-flash")->generateContent($prompt);
-        $answer   = $response->text();
+        $response = OpenAI::chat()->create([
+            'model'    => 'gpt-4o-mini',
+            'messages' => [['role' => 'user', 'content' => $prompt]],
+        ]);
+        $answer = $response->choices[0]->message->content;
 
         // Tài liệu đã hiện sẵn (đính kèm) bên trong thẻ hồ sơ Tăng Ni thì không cần
         // hiện lại lần nữa thành thẻ "tài liệu" độc lập bên dưới — tránh trùng lặp.

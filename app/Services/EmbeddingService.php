@@ -2,16 +2,18 @@
 
 namespace App\Services;
 
-use Gemini\Laravel\Facades\Gemini;
+use OpenAI\Laravel\Facades\OpenAI;
 
 class EmbeddingService
 {
     public function embed(string $text): array
     {
-        $response = Gemini::embeddingModel('gemini-embedding-001')
-            ->embedContent($text);
+        $response = OpenAI::embeddings()->create([
+            'model' => 'text-embedding-3-small',
+            'input' => $text,
+        ]);
 
-        return $response->embedding->values;
+        return $response->embeddings[0]->embedding;
     }
 
     public function embedBatch(array $texts): array

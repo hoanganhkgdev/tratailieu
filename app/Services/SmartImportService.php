@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Models\Document;
 use App\Models\Province;
 use App\Models\Temple;
-use Gemini\Laravel\Facades\Gemini;
+use OpenAI\Laravel\Facades\OpenAI;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -40,11 +40,12 @@ Hãy trả về JSON với các trường sau (nếu không tìm được thì �
 Chỉ trả về JSON thuần, không giải thích thêm.
 PROMPT;
 
-        $response = Gemini::generativeModel("gemini-2.5-flash")->generateContent($prompt);
-        $raw      = $response->text();
-
-        $raw = preg_replace('/```json|```/i', '', $raw);
-
+        $response = OpenAI::chat()->create([
+            'model'           => 'gpt-4o-mini',
+            'messages'        => [['role' => 'user', 'content' => $prompt]],
+            'response_format' => ['type' => 'json_object'],
+        ]);
+        $raw  = $response->choices[0]->message->content;
         $data = json_decode(trim($raw), true);
 
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($data)) {
