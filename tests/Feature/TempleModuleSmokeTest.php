@@ -205,15 +205,52 @@ class TempleModuleSmokeTest extends TestCase
         Livewire::test(TempleChat::class)
             ->assertSee('Hỏi về chùa A')
             ->assertSee('Hỏi về chùa B')
-            // mount() tự chọn conversation gần nhất (B)
-            ->assertSee('Chùa B ở đâu?')
+            // Vào thẳng /tra-cuu (không có ?c=) phải ra trò chuyện trống, không
+            // tự chọn cuộc gần nhất — nếu không, bấm "Trò chuyện mới" rồi F5 sẽ
+            // lại nhảy về cuộc cũ.
             ->assertDontSee('Chùa A ở đâu?')
+            ->assertDontSee('Chùa B ở đâu?')
             ->call('selectConversation', $conversationA->id)
             ->assertSee('Chùa A ở đâu?')
             ->assertSee('Chùa A ở An Giang.')
             ->call('newChat')
             ->assertDontSee('Chùa A ở đâu?')
             ->assertDontSee('Chùa B ở đâu?');
+    }
+
+    public function test_selected_conversation_survives_full_page_reload_via_url(): void
+    {
+        $user = $this->user;
+        $conversationA = Conversation::create(['user_id' => $user->id, 'title' => 'Hỏi về chùa A']);
+        Message::create(['conversation_id' => $conversationA->id, 'role' => 'user', 'content' => 'Chùa A ở đâu?']);
+
+        $conversationB = Conversation::create(['user_id' => $user->id, 'title' => 'Hỏi về chùa B']);
+        Message::create(['conversation_id' => $conversationB->id, 'role' => 'user', 'content' => 'Chùa B ở đâu?']);
+
+        // "F5" = request HTTP hoàn toàn mới, không phải gọi Livewire action —
+        // đây chính là kịch bản bug đã báo (bấm "Trò chuyện mới" rồi F5 nhảy
+        // về cuộc cũ).
+        $this->get('/tra-cuu?c='.$conversationA->id)
+            ->assertOk()
+            ->assertSee('Chùa A ở đâu?')
+            ->assertDontSee('Chùa B ở đâu?');
+
+        // Vào thẳng không có ?c= (giống bấm "Trò chuyện mới" rồi F5) phải ra trắng.
+        $this->get('/tra-cuu')
+            ->assertOk()
+            ->assertDontSee('Chùa A ở đâu?')
+            ->assertDontSee('Chùa B ở đâu?');
+    }
+
+    public function test_cannot_load_another_users_conversation_via_url(): void
+    {
+        $otherUser = User::factory()->create();
+        $otherConversation = Conversation::create(['user_id' => $otherUser->id, 'title' => 'Của người khác']);
+        Message::create(['conversation_id' => $otherConversation->id, 'role' => 'user', 'content' => 'Bí mật của người khác']);
+
+        $this->get('/tra-cuu?c='.$otherConversation->id)
+            ->assertOk()
+            ->assertDontSee('Bí mật của người khác');
     }
 
     public function test_deleting_conversation_removes_it_and_its_messages(): void

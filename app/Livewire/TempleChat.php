@@ -9,21 +9,27 @@ use App\Services\TempleSearchService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 #[Layout('layouts.chat')]
 class TempleChat extends Component
 {
+    // Đồng bộ vào URL (?c=ID) thay vì tự chọn "cuộc trò chuyện gần nhất" mỗi lần
+    // mount — nếu không, bấm "Trò chuyện mới" rồi F5 sẽ lại nhảy về cuộc cũ vì
+    // component mount lại từ đầu và không còn nhớ gì đã chọn "mới".
+    #[Url(as: 'c', history: true)]
     public ?int $conversationId = null;
 
     public string $question = '';
 
     public function mount(): void
     {
-        $latest = Auth::user()->conversations()->latest('id')->first();
-
-        if ($latest) {
-            $this->conversationId = $latest->id;
+        // conversationId có thể tới từ URL — xác thực nó thật sự thuộc user này,
+        // không thì bỏ qua (coi như trò chuyện mới) thay vì lỗi hoặc lộ dữ liệu
+        // người khác.
+        if ($this->conversationId && ! Auth::user()->conversations()->where('id', $this->conversationId)->exists()) {
+            $this->conversationId = null;
         }
     }
 
