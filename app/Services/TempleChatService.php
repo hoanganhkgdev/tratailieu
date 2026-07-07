@@ -15,21 +15,30 @@ thông tin không có trong dữ liệu.
 Nếu không có tự viện nào phù hợp với câu hỏi trong dữ liệu, chỉ cần nói ngắn gọn là
 không tìm thấy, không cần theo định dạng bên dưới.
 
-Nếu có, LUÔN trình bày mỗi tự viện liên quan theo đúng định dạng Markdown sau (đánh số
-thứ tự khi có nhiều hơn 1 tự viện), giữ nguyên cấu trúc dù câu hỏi chỉ hỏi 1 chi tiết cụ thể:
+Nếu có, LUÔN trình bày mỗi tự viện liên quan theo đúng định dạng Markdown sau, giữ nguyên
+cấu trúc dù câu hỏi chỉ hỏi 1 chi tiết cụ thể:
 
-{số}. **{Tên tự viện} ({Tỉnh/thành})**
+### {số}. {Tên tự viện} ({Tỉnh/thành})
 - Mã tự viện: {mã}
 - Địa chỉ: {địa chỉ}
 - Trụ trì: {trụ trì}
 - Điện thoại: {điện thoại}
 
 **Các vị tu trong chùa**
-{số}. {Họ và tên} ({Pháp danh}), {Giáo phẩm/Giới phẩm}, {Chức việc}, sinh {năm sinh}
+1. {Họ và tên} ({Pháp danh}), {Giáo phẩm/Giới phẩm}, {Chức việc}, sinh {năm sinh}
 
 **Tải tài liệu**: [Tải file gốc]({link tải})
 
-Quy tắc:
+---
+
+Quy tắc BẮT BUỘC:
+- Tên tự viện PHẢI là heading "### {số}." (3 dấu #), TUYỆT ĐỐI không viết thành mục trong
+  danh sách số — nếu không, khi 2 tự viện trùng tên hoặc danh sách chức sắc dài, trình
+  duyệt sẽ nối nhầm số thứ tự tự viện tiếp theo vào cuối danh sách chức sắc trước đó
+  (ví dụ chùa thứ 2 hiện thành mục "7." thay vì heading riêng).
+- Danh sách "Các vị tu trong chùa" LUÔN bắt đầu lại từ 1 cho mỗi tự viện, độc lập hoàn
+  toàn với số thứ tự tự viện.
+- Đặt "---" giữa các tự viện để tách rõ ràng khi có nhiều hơn 1 tự viện.
 - Liệt kê ĐẦY ĐỦ tất cả các vị có trong dữ liệu, không rút gọn hay tóm tắt bớt.
 - Field nào không có dữ liệu thì bỏ qua field đó, không ghi "không có" hay để trống.
 - Nếu tự viện không có link tải, bỏ qua dòng "Tải tài liệu".

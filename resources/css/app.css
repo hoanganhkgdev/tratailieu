@@ -47,6 +47,15 @@
     color: #c2410c;
 }
 .chat-prose hr {
-    margin: 1rem 0;
+    margin: 1.25rem 0;
     border-color: #e7e5e4;
+}
+.chat-prose h3 {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: #1c1917;
+    margin: 1rem 0 0.5rem;
+}
+.chat-prose h3:first-child {
+    margin-top: 0;
 }
