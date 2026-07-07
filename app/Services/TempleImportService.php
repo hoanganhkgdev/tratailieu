@@ -215,18 +215,19 @@ PROMPT;
 
     private function analyze(Document $document, string $text): array
     {
-        // Hồ sơ 1 tự viện thật dài nhất đã thấy (23 vị chức sắc) chỉ ~2.000 ký tự —
-        // giới hạn 6000 đã dư 3 lần, vẫn chặn được input phình to bất thường mà
-        // không cắt mất dữ liệu thật của bất kỳ tài liệu nào.
-        $excerpt = Str::limit($text, 6000);
+        // Có tự viện thật lên tới 36+ chức sắc (bị OpenAI cắt giữa dòng khi giới
+        // hạn cũ 2500 token — một số chùa Khmer cộng đồng lớn hơn hẳn phần còn
+        // lại của dữ liệu mẫu). Nới rộng cả input/output để không cắt mất dữ liệu
+        // thật của các tự viện lớn.
+        $excerpt = Str::limit($text, 12000);
 
         $response = OpenAI::chat()->create([
             'model'           => 'gpt-4o-mini',
             'response_format' => ['type' => 'json_object'],
             'temperature'     => 0,
-            // Chặn trần chi phí output mỗi lần gọi — bảng 23 người ra JSON chưa tới
-            // 1.500 token, 2500 đã dư nhiều mà vẫn chặn được trường hợp bất thường.
-            'max_tokens'      => 2500,
+            // ~36 người đã tốn ~2500 token và vẫn bị cắt — nâng lên 12000 để chịu
+            // được tự viện vài trăm người mà chi phí vẫn không đáng kể ($0.60/1M).
+            'max_tokens'      => 12000,
             'messages'        => [
                 ['role' => 'user', 'content' => self::INSTRUCTIONS."\n\n".$excerpt],
             ],
@@ -240,6 +241,13 @@ PROMPT;
             'ai_cost_usd'      => ($usage->promptTokens * self::INPUT_COST_PER_TOKEN)
                 + ($usage->completionTokens * self::OUTPUT_COST_PER_TOKEN),
         ]);
+
+        if ($response->choices[0]->finishReason === 'length') {
+            throw new \RuntimeException(
+                'AI bị cắt phản hồi giữa dòng vì tự viện có quá nhiều chức sắc (vượt giới hạn token). '.
+                'Cần tăng max_tokens trong TempleImportService hoặc xử lý tài liệu này riêng.'
+            );
+        }
 
         $raw = $response->choices[0]->message->content ?? '';
 
