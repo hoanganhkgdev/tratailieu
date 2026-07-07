@@ -241,11 +241,22 @@ PROMPT;
                 + ($usage->completionTokens * self::OUTPUT_COST_PER_TOKEN),
         ]);
 
-        $raw  = $response->choices[0]->message->content ?? '';
-        $data = json_decode(trim($raw), true);
+        $raw = $response->choices[0]->message->content ?? '';
+
+        // Văn bản trích xuất từ file gốc đôi khi lẫn ký tự điều khiển (control
+        // character) do lỗi encoding/định dạng cũ — nếu AI lặp lại nguyên các ký
+        // tự này trong JSON trả về, json_decode sẽ báo lỗi vì JSON hợp lệ không
+        // cho phép ký tự điều khiển thô nằm thô trong chuỗi (phải là \n đã escape,
+        // không phải byte xuống dòng thật). Thay các byte đó bằng khoảng trắng
+        // trước khi decode — không đụng tới các chuỗi \n đã escape đúng.
+        $sanitized = preg_replace('/[\x00-\x1F\x7F]/u', ' ', $raw) ?? $raw;
+        $data      = json_decode(trim($sanitized), true);
 
         if (json_last_error() !== JSON_ERROR_NONE || ! is_array($data)) {
-            throw new \RuntimeException('AI không trả về JSON hợp lệ: '.json_last_error_msg());
+            throw new \RuntimeException(
+                'AI không trả về JSON hợp lệ: '.json_last_error_msg().
+                ' — đoạn đầu phản hồi: '.Str::limit(trim($sanitized), 300)
+            );
         }
 
         return $data;
