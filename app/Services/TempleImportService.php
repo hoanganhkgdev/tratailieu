@@ -1,0 +1,278 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\Document;
+use App\Models\Monastic;
+use App\Models\Province;
+use App\Models\Temple;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
+use OpenAI\Laravel\Facades\OpenAI;
+
+class TempleImportService
+{
+    /**
+     * Giá gpt-4o-mini, đơn vị USD trên mỗi 1 token (không phải 1M) — nhân trực tiếp
+     * với số token trả về từ OpenAI để ra chi phí thực từng lần gọi.
+     */
+    private const INPUT_COST_PER_TOKEN = 0.15 / 1_000_000;
+
+    private const OUTPUT_COST_PER_TOKEN = 0.60 / 1_000_000;
+
+    public function __construct(private DocumentParserService $parser) {}
+
+    public function process(Document $document): void
+    {
+        $data = null;
+
+        try {
+            $document->update(['status' => 'processing']);
+
+            $text = $this->parser->extractText($document->file_path, $document->file_type);
+            $data = $this->analyze($document, $text);
+
+            // Nếu admin đã chọn sẵn tỉnh lúc upload thì dùng luôn, không để AI tự đoán —
+            // tránh trường hợp AI nhầm tên huyện/xã cũ (vd "An Minh") thành tên tỉnh.
+            $province = $document->province ?? Province::findByNameOrAlias($data['province_name'] ?? null);
+
+            if (! $province) {
+                $document->update([
+                    'status'         => 'failed',
+                    'error_message'  => 'Không xác định được tỉnh/thành từ tài liệu. Vui lòng kiểm tra và gán thủ công.',
+                    'extracted_json' => $data,
+                ]);
+
+                return;
+            }
+
+            $this->finalize($document, $data, $province);
+        } catch (\Throwable $e) {
+            $document->update([
+                'status'         => 'failed',
+                'error_message'  => $e->getMessage(),
+                'extracted_json' => $data,
+            ]);
+        }
+    }
+
+    /**
+     * Dùng khi AI trích xuất được dữ liệu nhưng không tự đối chiếu được tỉnh/thành
+     * (vd tài liệu chỉ ghi tên huyện cũ). Tái sử dụng JSON đã có, không gọi lại AI.
+     */
+    public function assignProvince(Document $document, Province $province): void
+    {
+        $data = $document->extracted_json;
+
+        if (! is_array($data)) {
+            throw new \RuntimeException('Tài liệu chưa có dữ liệu AI trích xuất để gán tỉnh.');
+        }
+
+        try {
+            $this->finalize($document, $data, $province);
+        } catch (\Throwable $e) {
+            $document->update([
+                'status'        => 'failed',
+                'error_message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function finalize(Document $document, array $data, Province $province): void
+    {
+        $code = $data['code'] ?? null;
+        if (empty($code)) {
+            $code = 'TMP-'.Str::upper(Str::random(6));
+        }
+
+        // Nhiều worker có thể cùng lúc xử lý 2 tài liệu trỏ về cùng 1 mã tự viện (vd
+        // upload trùng file). Khoá theo (tỉnh, mã) để việc ghi Temple + đồng bộ chức sắc
+        // không chồng lấn giữa các job — chờ tối đa 15s rồi mới chịu thua.
+        Cache::lock("temple-import:{$province->id}:{$code}", 30)->block(15, function () use ($document, $data, $province, $code) {
+            $name = $data['name'] ?? 'Chưa xác định';
+
+            // updateOrCreate() làm 2 bước riêng (tìm rồi tạo) nên vẫn có thể đụng unique
+            // (province_id, code) nếu lock bị timeout; upsert() là 1 câu lệnh DB atomic
+            // nên an toàn tuyệt đối dù có race.
+            //
+            // Unique index (province_id, code) không biết đến deleted_at, nên nếu mã này
+            // từng bị xoá (soft delete) rồi tài liệu được upload lại, phải chủ động hồi
+            // sinh (deleted_at = null) — nếu không upsert sẽ âm thầm cập nhật vào đúng bản
+            // ghi đã xoá mà nó vẫn ẩn khỏi mọi truy vấn thường.
+            Temple::upsert(
+                [[
+                    'province_id' => $province->id,
+                    'code'        => $code,
+                    'name'        => $name,
+                    'slug'        => Str::slug($code.'-'.$name),
+                    'type'        => $this->normalizeType($data['type'] ?? null),
+                    'address'     => $data['address'] ?? null,
+                    'head_monk'   => $data['head_monk'] ?? null,
+                    'phone'       => $this->truncate($data['phone'] ?? null),
+                    'is_active'   => true,
+                    'deleted_at'  => null,
+                    'created_at'  => now(),
+                    'updated_at'  => now(),
+                ]],
+                ['province_id', 'code'],
+                ['name', 'slug', 'type', 'address', 'head_monk', 'phone', 'is_active', 'deleted_at', 'updated_at']
+            );
+
+            $temple = Temple::withTrashed()->where('province_id', $province->id)->where('code', $code)->firstOrFail();
+
+            $document->update(['temple_id' => $temple->id]);
+
+            // Tài liệu mới nhất là nguồn chuẩn cho danh sách chức sắc hiện tại của tự viện,
+            // nên thay hẳn danh sách cũ thay vì cố gắng đối chiếu từng dòng.
+            $temple->monastics()->delete();
+
+            foreach ($data['monastics'] ?? [] as $row) {
+                Monastic::create([
+                    'temple_id'      => $temple->id,
+                    'document_id'    => $document->id,
+                    'stt'            => $row['stt'] ?? null,
+                    'full_name'      => $row['full_name'] ?? 'Chưa xác định',
+                    'religious_name' => $row['religious_name'] ?? null,
+                    'rank'           => $row['rank'] ?? null,
+                    'position'       => $row['position'] ?? null,
+                    'birth_year'     => $row['birth_year'] ?? null,
+                    'phone'          => $this->truncate($row['phone'] ?? null),
+                ]);
+            }
+
+            $temple->update(['latest_document_id' => $document->id]);
+
+            $document->update([
+                'status'         => 'ready',
+                'processed_at'   => now(),
+                'error_message'  => null,
+                'extracted_json' => $data,
+            ]);
+        });
+    }
+
+    private function truncate(?string $value, int $length = 50): ?string
+    {
+        return $value === null ? null : mb_substr(trim($value), 0, $length);
+    }
+
+    /**
+     * Phần hướng dẫn này giữ NGUYÊN VĂN giống nhau ở mọi lần gọi — luôn đặt trước
+     * phần nội dung file (thay đổi theo từng tài liệu) để OpenAI tự áp dụng
+     * "prompt caching" (giảm ~50% giá phần này từ lần gọi thứ 2 trở đi). Nếu đảo
+     * thứ tự (nội dung file trước, hướng dẫn sau) sẽ mất hẳn phần tiết kiệm này.
+     */
+    private const INSTRUCTIONS = <<<PROMPT
+Hãy phân tích văn bản trích từ hồ sơ một tự viện Phật giáo Việt Nam (được cung cấp ở cuối
+prompt này) và trả về JSON.
+
+Văn bản thường có phần đầu ghi: mã số + tên tự viện (ví dụ "0001. CHÙA AN LẠC"), địa chỉ,
+tên trụ trì, số điện thoại của trụ trì. Sau đó là một bảng liệt kê các vị chức sắc, chức việc,
+nhà tu hành trong tự viện. Cấu trúc cột của bảng KHÔNG cố định giữa các tài liệu, ví dụ:
+- Có tài liệu tách riêng cột "Pháp danh" và cột "Giới phẩm" (Tỳ Kheo Ni, Sa di, Ngũ Giới...).
+- Có tài liệu gộp chung thành 1 cột "Giáo phẩm/Pháp danh" (ví dụ giá trị "Hòa thượng Thích Thanh Tùng"),
+  cột này có thể nằm TRƯỚC hoặc SAU cột "Họ và tên" tuỳ tài liệu — đọc theo đúng tên tiêu đề cột,
+  không giả định thứ tự cố định. Trường hợp gộp PHẢI tách ra: phần chức danh tôn giáo đưa vào "rank",
+  phần còn lại (tên trong đạo) đưa vào "religious_name".
+- Chức danh tôn giáo có thể viết đầy đủ (Hòa thượng, Thượng tọa, Ni trưởng, Ni sư, Sư cô, Đại đức,
+  Tỳ Kheo, Tỳ Kheo Ni, Thức Xoa, Sa di, Sa di Ni, Ngũ Giới...) hoặc viết tắt kèm dấu chấm (HT., TT.,
+  NT., NS., SC., ĐĐ.) hoặc viết tắt liền không dấu chấm (TXMN = Thức xoa ma na, SDN = Sa di ni,
+  SD = Sa di). Luôn nhận diện cả dạng viết tắt.
+- Tên cột có thể khác nhau giữa tài liệu nhưng cùng ý nghĩa: "STT" hoặc "TT" (số thứ tự), "Chức việc"
+  hoặc "Chức vụ" hoặc "Chức sắc/Chức việc" (đều đưa vào "position").
+- Cột năm sinh có thể chỉ ghi năm (vd 1964, 2005), đưa vào "birth_year" dạng số nguyên, không có
+  phần thập phân.
+- Một số tài liệu có thêm cột điện thoại riêng cho từng người, một số thì không.
+- Mã số tự viện PHẢI lấy từ nội dung văn bản (dòng đầu tiên, ví dụ "248. CHÙA DIỆU ĐỨC"), tuyệt đối
+  không suy đoán từ tên file vì 2 nơi có thể ghi số khác nhau.
+
+Trả về JSON đúng định dạng sau (field nào không có thì để null, mảng rỗng nếu không có ai):
+{
+  "code": "mã tự viện, ví dụ 0001 (chỉ lấy phần số/mã, không kèm dấu chấm)",
+  "name": "tên tự viện, không kèm mã số phía trước",
+  "type": "chua | tu_vien | tinh_xa | thien_vien | tinh_that",
+  "province_name": "tên tỉnh/thành phố (vd: An Giang, TP. Hồ Chí Minh)",
+  "address": "địa chỉ đầy đủ",
+  "head_monk": "tên trụ trì",
+  "phone": "số điện thoại của trụ trì / liên hệ chung",
+  "monastics": [
+    {
+      "stt": 1,
+      "full_name": "họ và tên khai sinh",
+      "religious_name": "pháp danh / tên trong đạo",
+      "rank": "giáo phẩm hoặc giới phẩm",
+      "position": "chức việc, ví dụ: Trụ trì, Phó trụ trì, Tăng chúng",
+      "birth_year": 1964,
+      "phone": "điện thoại riêng nếu có, ngược lại null"
+    }
+  ]
+}
+
+Chỉ trả về JSON thuần, không giải thích thêm, không bọc trong markdown code block.
+
+Văn bản cần phân tích:
+PROMPT;
+
+    private function analyze(Document $document, string $text): array
+    {
+        // Hồ sơ 1 tự viện thật dài nhất đã thấy (23 vị chức sắc) chỉ ~2.000 ký tự —
+        // giới hạn 6000 đã dư 3 lần, vẫn chặn được input phình to bất thường mà
+        // không cắt mất dữ liệu thật của bất kỳ tài liệu nào.
+        $excerpt = Str::limit($text, 6000);
+
+        $response = OpenAI::chat()->create([
+            'model'           => 'gpt-4o-mini',
+            'response_format' => ['type' => 'json_object'],
+            'temperature'     => 0,
+            // Chặn trần chi phí output mỗi lần gọi — bảng 23 người ra JSON chưa tới
+            // 1.500 token, 2500 đã dư nhiều mà vẫn chặn được trường hợp bất thường.
+            'max_tokens'      => 2500,
+            'messages'        => [
+                ['role' => 'user', 'content' => self::INSTRUCTIONS."\n\n".$excerpt],
+            ],
+        ]);
+
+        $usage = $response->usage;
+
+        $document->update([
+            'ai_input_tokens'  => $usage->promptTokens,
+            'ai_output_tokens' => $usage->completionTokens,
+            'ai_cost_usd'      => ($usage->promptTokens * self::INPUT_COST_PER_TOKEN)
+                + ($usage->completionTokens * self::OUTPUT_COST_PER_TOKEN),
+        ]);
+
+        $raw  = $response->choices[0]->message->content ?? '';
+        $data = json_decode(trim($raw), true);
+
+        if (json_last_error() !== JSON_ERROR_NONE || ! is_array($data)) {
+            throw new \RuntimeException('AI không trả về JSON hợp lệ: '.json_last_error_msg());
+        }
+
+        return $data;
+    }
+
+    private function normalizeType(?string $type): string
+    {
+        $valid = ['chua', 'tu_vien', 'tinh_xa', 'thien_vien', 'tinh_that'];
+
+        if (in_array($type, $valid, true)) {
+            return $type;
+        }
+
+        $map = [
+            'chùa'       => 'chua',
+            'tự viện'    => 'tu_vien',
+            'tu vien'    => 'tu_vien',
+            'tịnh xá'    => 'tinh_xa',
+            'tinh xa'    => 'tinh_xa',
+            'thiền viện' => 'thien_vien',
+            'thien vien' => 'thien_vien',
+            'tịnh thất'  => 'tinh_that',
+            'tinh that'  => 'tinh_that',
+        ];
+
+        $normalized = mb_strtolower(trim($type ?? ''));
+
+        return $map[$normalized] ?? 'chua';
+    }
+}
