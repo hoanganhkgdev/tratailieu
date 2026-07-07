@@ -244,12 +244,14 @@ PROMPT;
         $raw = $response->choices[0]->message->content ?? '';
 
         // Văn bản trích xuất từ file gốc đôi khi lẫn ký tự điều khiển (control
-        // character) do lỗi encoding/định dạng cũ — nếu AI lặp lại nguyên các ký
-        // tự này trong JSON trả về, json_decode sẽ báo lỗi vì JSON hợp lệ không
-        // cho phép ký tự điều khiển thô nằm thô trong chuỗi (phải là \n đã escape,
-        // không phải byte xuống dòng thật). Thay các byte đó bằng khoảng trắng
-        // trước khi decode — không đụng tới các chuỗi \n đã escape đúng.
-        $sanitized = preg_replace('/[\x00-\x1F\x7F]/u', ' ', $raw) ?? $raw;
+        // character) hoặc byte không hợp lệ UTF-8 do lỗi encoding/định dạng cũ —
+        // nếu AI lặp lại nguyên trong JSON trả về, json_decode sẽ báo lỗi. Dọn
+        // UTF-8 hỏng trước (mb_convert_encoding tự bỏ byte không hợp lệ), rồi mới
+        // strip ký tự điều khiển thô — KHÔNG dùng flag /u ở bước này vì nếu chuỗi
+        // vẫn còn sót byte hỏng, preg_replace('/u') sẽ lặng lẽ trả về null và
+        // code sẽ vô tình dùng lại bản gốc chưa được dọn.
+        $sanitized = mb_convert_encoding($raw, 'UTF-8', 'UTF-8');
+        $sanitized = preg_replace('/[\x00-\x1F\x7F]/', ' ', $sanitized) ?? $sanitized;
         $data      = json_decode(trim($sanitized), true);
 
         if (json_last_error() !== JSON_ERROR_NONE || ! is_array($data)) {
