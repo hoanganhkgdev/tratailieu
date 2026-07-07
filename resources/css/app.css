@@ -13,3 +13,40 @@
 [x-cloak] {
     display: none !important;
 }
+
+/* Định dạng câu trả lời Markdown của chat AI (tra cứu tự viện) */
+.chat-prose p {
+    margin-bottom: 0.75rem;
+}
+.chat-prose p:last-child {
+    margin-bottom: 0;
+}
+.chat-prose strong {
+    font-weight: 600;
+    color: #1c1917;
+}
+.chat-prose ol,
+.chat-prose ul {
+    margin: 0.25rem 0 0.75rem 1.25rem;
+}
+.chat-prose ol {
+    list-style: decimal;
+}
+.chat-prose ul {
+    list-style: disc;
+}
+.chat-prose li {
+    margin-bottom: 0.25rem;
+}
+.chat-prose a {
+    color: #ea580c;
+    font-weight: 500;
+    text-decoration: underline;
+}
+.chat-prose a:hover {
+    color: #c2410c;
+}
+.chat-prose hr {
+    margin: 1rem 0;
+    border-color: #e7e5e4;
+}

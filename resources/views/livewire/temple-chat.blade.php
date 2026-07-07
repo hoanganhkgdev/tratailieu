@@ -91,26 +91,8 @@
                             </div>
                         </div>
                     @else
-                        <div class="flex flex-col gap-3">
-                            <p class="whitespace-pre-line break-words text-sm leading-relaxed text-stone-800">{{ $message->content }}</p>
-
-                            @if (!empty($message->temples))
-                                <div class="flex flex-col gap-2">
-                                    @foreach ($message->temples as $temple)
-                                        <div class="flex flex-col gap-1 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                                            <span class="min-w-0 truncate text-stone-600">
-                                                <span class="font-medium text-stone-900">{{ $temple['code'] }} — {{ $temple['name'] }}</span>
-                                                <span class="text-stone-500">({{ $temple['province'] ?? 'chưa rõ tỉnh' }})</span>
-                                            </span>
-                                            @if ($temple['download_url'])
-                                                <a href="{{ $temple['download_url'] }}" target="_blank" class="shrink-0 font-medium text-orange-600 hover:underline">
-                                                    Tải file gốc
-                                                </a>
-                                            @endif
-                                        </div>
-                                    @endforeach
-                                </div>
-                            @endif
+                        <div class="chat-prose max-w-none break-words text-sm leading-relaxed text-stone-800">
+                            {!! \Illuminate\Support\Str::markdown($message->content, ['html_input' => 'strip']) !!}
                         </div>
                     @endif
                 @empty
