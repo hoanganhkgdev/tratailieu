@@ -141,6 +141,28 @@ class TempleModuleSmokeTest extends TestCase
         Queue::assertPushed(ProcessTempleDocumentJob::class);
     }
 
+    public function test_bulk_delete_skips_ready_documents_but_deletes_failed_ones(): void
+    {
+        $readyDoc = Document::create([
+            'file_path' => 'temples/ready.docx',
+            'file_name' => 'ready.docx',
+            'file_type' => 'docx',
+            'status'    => 'ready',
+        ]);
+        $failedDoc = Document::create([
+            'file_path' => 'temples/failed.docx',
+            'file_name' => 'failed.docx',
+            'file_type' => 'docx',
+            'status'    => 'failed',
+        ]);
+
+        Livewire::test(ListDocuments::class)
+            ->callTableBulkAction('deleteNonReady', [$readyDoc, $failedDoc]);
+
+        $this->assertModelExists($readyDoc);
+        $this->assertModelMissing($failedDoc);
+    }
+
     public function test_temple_search_service_matches_by_name_address_and_monastic(): void
     {
         $province = Province::create(['name' => 'An Giang', 'aliases' => ['Kiên Giang']]);

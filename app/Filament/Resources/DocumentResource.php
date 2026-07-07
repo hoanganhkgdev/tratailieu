@@ -216,7 +216,24 @@ class DocumentResource extends Resource
                                 ->success()
                                 ->send();
                         }),
-                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\BulkAction::make('deleteNonReady')
+                        ->label('Xoá các mục đã chọn')
+                        ->icon('heroicon-o-trash')
+                        ->color('danger')
+                        ->requiresConfirmation()
+                        ->modalDescription('Tài liệu đã "Hoàn tất" sẽ KHÔNG bị xoá — xoá sẽ làm mất link tải file gốc của tự viện liên quan dù bản thân tự viện vẫn còn. Chỉ các mục lỗi/chờ xử lý mới bị xoá.')
+                        ->deselectRecordsAfterCompletion()
+                        ->action(function (Collection $records) {
+                            $deletable = $records->reject(fn (Document $record) => $record->status === 'ready');
+                            $skipped = $records->count() - $deletable->count();
+
+                            $deletable->each->delete();
+
+                            Notification::make()
+                                ->title("Đã xoá {$deletable->count()} tài liệu".($skipped ? ", bỏ qua {$skipped} tài liệu đã hoàn tất" : ''))
+                                ->success()
+                                ->send();
+                        }),
                 ]),
             ]);
     }
