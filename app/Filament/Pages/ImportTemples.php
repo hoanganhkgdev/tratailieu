@@ -11,6 +11,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Auth;
@@ -44,6 +45,7 @@ class ImportTemples extends Page implements HasForms
                     ->helperText('Toàn bộ file chọn bên dưới sẽ được ghi nhận vào tỉnh này — AI sẽ không tự đoán tỉnh nữa, tránh nhầm lẫn.')
                     ->options(Province::query()->orderBy('name')->pluck('name', 'id'))
                     ->searchable()
+                    ->live()
                     ->required(),
                 FileUpload::make('files')
                     ->label('File hồ sơ tự viện (PDF/DOCX)')
@@ -51,7 +53,7 @@ class ImportTemples extends Page implements HasForms
                     ->multiple()
                     ->preserveFilenames()
                     ->disk('public')
-                    ->directory('temples')
+                    ->directory(fn (Get $get): string => 'tu-vien/'.(Province::find($get('province_id'))?->slug ?? 'chua-xac-dinh'))
                     ->acceptedFileTypes([
                         'application/pdf',
                         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
