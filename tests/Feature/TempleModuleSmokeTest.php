@@ -9,7 +9,9 @@ use App\Filament\Resources\TempleResource\Pages\ListTemples;
 use App\Filament\Resources\TempleResource\Pages\ViewTemple;
 use App\Jobs\ProcessTempleDocumentJob;
 use App\Livewire\TempleChat;
+use App\Models\Conversation;
 use App\Models\Document;
+use App\Models\Message;
 use App\Models\Monastic;
 use App\Models\Province;
 use App\Models\Temple;
@@ -24,10 +26,13 @@ class TempleModuleSmokeTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected User $user;
+
     protected function setUp(): void
     {
         parent::setUp();
-        $this->actingAs(User::factory()->create());
+        $this->user = User::factory()->create();
+        $this->actingAs($this->user);
     }
 
     public function test_import_temples_page_renders(): void
@@ -185,5 +190,44 @@ class TempleModuleSmokeTest extends TestCase
             ->assertOk()
             ->assertSee('Tra cứu tự viện')
             ->assertSee('Hỏi gì về tự viện cũng được');
+    }
+
+    public function test_chat_sidebar_shows_conversation_history_and_switches_between_them(): void
+    {
+        $user = $this->user;
+        $conversationA = Conversation::create(['user_id' => $user->id, 'title' => 'Hỏi về chùa A']);
+        Message::create(['conversation_id' => $conversationA->id, 'role' => 'user', 'content' => 'Chùa A ở đâu?']);
+        Message::create(['conversation_id' => $conversationA->id, 'role' => 'assistant', 'content' => 'Chùa A ở An Giang.']);
+
+        $conversationB = Conversation::create(['user_id' => $user->id, 'title' => 'Hỏi về chùa B']);
+        Message::create(['conversation_id' => $conversationB->id, 'role' => 'user', 'content' => 'Chùa B ở đâu?']);
+
+        Livewire::test(TempleChat::class)
+            ->assertSee('Hỏi về chùa A')
+            ->assertSee('Hỏi về chùa B')
+            // mount() tự chọn conversation gần nhất (B)
+            ->assertSee('Chùa B ở đâu?')
+            ->assertDontSee('Chùa A ở đâu?')
+            ->call('selectConversation', $conversationA->id)
+            ->assertSee('Chùa A ở đâu?')
+            ->assertSee('Chùa A ở An Giang.')
+            ->call('newChat')
+            ->assertDontSee('Chùa A ở đâu?')
+            ->assertDontSee('Chùa B ở đâu?');
+    }
+
+    public function test_deleting_conversation_removes_it_and_its_messages(): void
+    {
+        $user = $this->user;
+        $conversation = Conversation::create(['user_id' => $user->id, 'title' => 'Xoá thử']);
+        Message::create(['conversation_id' => $conversation->id, 'role' => 'user', 'content' => 'Câu hỏi test']);
+
+        Livewire::test(TempleChat::class)
+            ->assertSee('Xoá thử')
+            ->call('deleteConversation', $conversation->id)
+            ->assertDontSee('Xoá thử');
+
+        $this->assertModelMissing($conversation);
+        $this->assertDatabaseMissing('messages', ['conversation_id' => $conversation->id]);
     }
 }

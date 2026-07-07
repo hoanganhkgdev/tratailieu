@@ -1,93 +1,132 @@
-<div class="flex h-screen flex-col">
-    <header class="flex items-center justify-between border-b border-neutral-800 px-4 py-3 sm:px-6">
-        <div>
-            <h1 class="text-sm font-semibold text-neutral-100">Tra cứu tự viện</h1>
-            <p class="text-xs text-neutral-500">Hỏi theo tên chùa, địa chỉ, trụ trì, số điện thoại hoặc tên chức sắc</p>
-        </div>
-        @if (count($messages))
+<div class="flex h-screen">
+    {{-- Sidebar --}}
+    <aside class="flex w-64 shrink-0 flex-col border-r border-stone-800 bg-stone-950">
+        <div class="p-3">
             <button
-                wire:click="clearHistory"
-                class="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"
+                wire:click="newChat"
+                class="flex w-full items-center gap-2 rounded-lg border border-orange-700/50 bg-orange-600/10 px-3 py-2.5 text-sm font-medium text-orange-400 transition hover:bg-orange-600/20"
             >
-                Xoá lịch sử
+                <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"/></svg>
+                Trò chuyện mới
             </button>
-        @endif
-    </header>
+        </div>
 
-    <div
-        class="flex-1 overflow-y-auto px-4 py-6 sm:px-6"
-        x-data
-        x-init="$wire.on('message-sent', () => $nextTick(() => { $el.scrollTop = $el.scrollHeight }))"
-    >
-        <div class="mx-auto flex max-w-2xl flex-col gap-6">
-            @forelse ($messages as $message)
-                @if ($message['role'] === 'user')
-                    <div class="flex justify-end">
-                        <div class="max-w-[80%] rounded-2xl bg-neutral-100 px-4 py-2.5 text-sm text-neutral-900">
-                            {{ $message['content'] }}
-                        </div>
+        <div class="flex-1 overflow-y-auto px-2 pb-3">
+            <p class="px-2 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-stone-500">Lịch sử</p>
+            <div class="flex flex-col gap-0.5">
+                @forelse ($conversations as $conversation)
+                    <div class="group flex items-center gap-1">
+                        <button
+                            wire:click="selectConversation({{ $conversation->id }})"
+                            @class([
+                                'flex-1 truncate rounded-lg px-2.5 py-2 text-left text-sm transition',
+                                'bg-orange-600/15 text-orange-300' => $conversation->id === $conversationId,
+                                'text-stone-300 hover:bg-stone-900' => $conversation->id !== $conversationId,
+                            ])
+                        >
+                            {{ $conversation->title ?: 'Trò chuyện' }}
+                        </button>
+                        <button
+                            wire:click="deleteConversation({{ $conversation->id }})"
+                            wire:confirm="Xoá cuộc trò chuyện này?"
+                            class="hidden shrink-0 rounded-md p-1.5 text-stone-500 hover:bg-stone-900 hover:text-red-400 group-hover:block"
+                        >
+                            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clip-rule="evenodd"/></svg>
+                        </button>
                     </div>
-                @else
-                    <div class="flex flex-col gap-3">
-                        <p class="whitespace-pre-line text-sm leading-relaxed text-neutral-200">{{ $message['content'] }}</p>
-
-                        @if (!empty($message['temples']))
-                            <div class="flex flex-col gap-2">
-                                @foreach ($message['temples'] as $temple)
-                                    <div class="flex items-center justify-between gap-3 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs">
-                                        <span class="text-neutral-300">
-                                            <span class="font-medium text-neutral-100">{{ $temple['code'] }} — {{ $temple['name'] }}</span>
-                                            <span class="text-neutral-500">({{ $temple['province'] ?? 'chưa rõ tỉnh' }})</span>
-                                        </span>
-                                        @if ($temple['download_url'])
-                                            <a href="{{ $temple['download_url'] }}" target="_blank" class="shrink-0 font-medium text-emerald-400 hover:underline">
-                                                Tải file gốc
-                                            </a>
-                                        @endif
-                                    </div>
-                                @endforeach
-                            </div>
-                        @endif
-                    </div>
-                @endif
-            @empty
-                <div class="mt-16 flex flex-col items-center gap-2 text-center">
-                    <p class="text-lg font-medium text-neutral-300">Hỏi gì về tự viện cũng được</p>
-                    <p class="text-sm text-neutral-500">Ví dụ: "Chùa An Lạc ở đâu?", "Trụ trì chùa Bửu Sơn là ai?", "SĐT chùa mã 0004?"</p>
-                </div>
-            @endforelse
-
-            <div wire:loading wire:target="ask" class="flex items-center gap-2 text-sm text-neutral-500">
-                <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                </svg>
-                Đang tìm...
+                @empty
+                    <p class="px-2.5 py-2 text-sm text-stone-600">Chưa có cuộc trò chuyện nào.</p>
+                @endforelse
             </div>
         </div>
-    </div>
 
-    <div class="border-t border-neutral-800 px-4 py-4 sm:px-6">
-        <form
-            wire:submit="ask"
-            @submit="$wire.dispatch('message-sent')"
-            class="mx-auto flex max-w-2xl items-end gap-2 rounded-2xl border border-neutral-700 bg-neutral-900 p-2"
+        <div class="border-t border-stone-800 p-3 text-xs text-stone-500">
+            {{ auth()->user()->name }}
+        </div>
+    </aside>
+
+    {{-- Main --}}
+    <div class="flex flex-1 flex-col">
+        <header class="border-b border-stone-800 px-4 py-3 sm:px-6">
+            <h1 class="text-sm font-semibold text-stone-100">Tra cứu tự viện</h1>
+            <p class="text-xs text-stone-500">Hỏi theo tên chùa, địa chỉ, trụ trì, số điện thoại hoặc tên chức sắc</p>
+        </header>
+
+        <div
+            class="flex-1 overflow-y-auto px-4 py-6 sm:px-6"
+            x-data
+            x-init="$wire.on('message-sent', () => $nextTick(() => { $el.scrollTop = $el.scrollHeight }))"
         >
-            <textarea
-                wire:model="question"
-                wire:keydown.enter.prevent="ask"
-                rows="1"
-                placeholder="Nhập câu hỏi..."
-                class="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none"
-            ></textarea>
-            <button
-                type="submit"
-                wire:loading.attr="disabled"
-                wire:target="ask"
-                class="shrink-0 rounded-lg bg-neutral-100 px-3 py-1.5 text-sm font-medium text-neutral-900 disabled:opacity-50"
+            <div class="mx-auto flex max-w-2xl flex-col gap-6">
+                @forelse ($messages as $message)
+                    @if ($message->role === 'user')
+                        <div class="flex justify-end">
+                            <div class="max-w-[80%] rounded-2xl bg-orange-600 px-4 py-2.5 text-sm text-white">
+                                {{ $message->content }}
+                            </div>
+                        </div>
+                    @else
+                        <div class="flex flex-col gap-3">
+                            <p class="whitespace-pre-line text-sm leading-relaxed text-stone-200">{{ $message->content }}</p>
+
+                            @if (!empty($message->temples))
+                                <div class="flex flex-col gap-2">
+                                    @foreach ($message->temples as $temple)
+                                        <div class="flex items-center justify-between gap-3 rounded-lg border border-stone-800 bg-stone-900 px-3 py-2 text-xs">
+                                            <span class="text-stone-300">
+                                                <span class="font-medium text-stone-100">{{ $temple['code'] }} — {{ $temple['name'] }}</span>
+                                                <span class="text-stone-500">({{ $temple['province'] ?? 'chưa rõ tỉnh' }})</span>
+                                            </span>
+                                            @if ($temple['download_url'])
+                                                <a href="{{ $temple['download_url'] }}" target="_blank" class="shrink-0 font-medium text-orange-400 hover:underline">
+                                                    Tải file gốc
+                                                </a>
+                                            @endif
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @endif
+                        </div>
+                    @endif
+                @empty
+                    <div class="mt-16 flex flex-col items-center gap-2 text-center">
+                        <p class="text-lg font-medium text-stone-300">Hỏi gì về tự viện cũng được</p>
+                        <p class="text-sm text-stone-500">Ví dụ: "Chùa An Lạc ở đâu?", "Trụ trì chùa Bửu Sơn là ai?", "SĐT chùa mã 0004?"</p>
+                    </div>
+                @endforelse
+
+                <div wire:loading wire:target="ask" class="flex items-center gap-2 text-sm text-stone-500">
+                    <svg class="h-4 w-4 animate-spin text-orange-500" viewBox="0 0 24 24" fill="none">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                    Đang tìm...
+                </div>
+            </div>
+        </div>
+
+        <div class="border-t border-stone-800 px-4 py-4 sm:px-6">
+            <form
+                wire:submit="ask"
+                @submit="$wire.dispatch('message-sent')"
+                class="mx-auto flex max-w-2xl items-end gap-2 rounded-2xl border border-stone-700 bg-stone-900 p-2 focus-within:border-orange-600"
             >
-                Gửi
-            </button>
-        </form>
+                <textarea
+                    wire:model="question"
+                    wire:keydown.enter.prevent="ask"
+                    rows="1"
+                    placeholder="Nhập câu hỏi..."
+                    class="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-stone-100 placeholder:text-stone-500 focus:outline-none"
+                ></textarea>
+                <button
+                    type="submit"
+                    wire:loading.attr="disabled"
+                    wire:target="ask"
+                    class="shrink-0 rounded-lg bg-orange-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-orange-500 disabled:opacity-50"
+                >
+                    Gửi
+                </button>
+            </form>
+        </div>
     </div>
 </div>
