@@ -34,22 +34,37 @@ class Province extends Model
             return null;
         }
 
-        $normalized = Str::of($name)->lower()->squish()->toString();
+        $normalized = self::normalizeForMatch($name);
 
         return static::query()
             ->get()
             ->first(function (self $province) use ($normalized) {
-                if (Str::of($province->name)->lower()->squish()->toString() === $normalized) {
+                if (self::normalizeForMatch($province->name) === $normalized) {
                     return true;
                 }
 
                 foreach ($province->aliases ?? [] as $alias) {
-                    if (Str::of($alias)->lower()->squish()->toString() === $normalized) {
+                    if (self::normalizeForMatch($alias) === $normalized) {
                         return true;
                     }
                 }
 
                 return false;
             });
+    }
+
+    /**
+     * Chuẩn hoá về Unicode NFC trước khi so khớp — tên thư mục do macOS Finder tạo
+     * (vd khi bulk-import từ thư mục local) thường ở dạng NFD (tổ hợp: ký tự gốc +
+     * dấu riêng), trong khi tên tỉnh lưu trong DB là NFC (ký tự dựng sẵn có dấu).
+     * 2 dạng hiển thị giống hệt nhau nhưng khác byte, so sánh chuỗi thường sẽ luôn
+     * trả về false nếu không chuẩn hoá trước — từng làm mọi tỉnh có dấu bị bỏ qua
+     * khi chạy temples:bulk-import trên thư mục copy từ Mac.
+     */
+    private static function normalizeForMatch(string $value): string
+    {
+        $normalized = \Normalizer::normalize($value, \Normalizer::FORM_C) ?: $value;
+
+        return Str::of($normalized)->lower()->squish()->toString();
     }
 }
