@@ -7,6 +7,7 @@ use App\Models\Monastic;
 use App\Models\Province;
 use App\Models\Temple;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use OpenAI\Laravel\Facades\OpenAI;
 
@@ -84,13 +85,17 @@ class TempleImportService
 
         $code = $data['code'] ?? null;
         if (empty($code)) {
-            // Không có mã thật trong văn bản (rất phổ biến ở các đợt tài liệu mới) —
-            // suy mã tạm TRỰC TIẾP từ tên đã chuẩn hoá (thường, gộp khoảng trắng) thay
-            // vì random: cùng 1 tên tự viện luôn ra cùng 1 mã, nên chạy lại lệnh hay lỡ
-            // trùng file trong 1 đợt import sẽ tự cập nhật vào đúng bản ghi cũ thay vì
-            // tạo thêm bản ghi trùng lặp. Đánh đổi: 2 tự viện thật trùng tên trong cùng
-            // 1 tỉnh sẽ bị gộp — hiếm hơn nhiều so với việc tạo trùng lặp hàng loạt.
-            $code = 'N-'.Str::upper(substr(md5(Str::of($name)->lower()->squish()->toString()), 0, 10));
+            // Không có mã thật trong văn bản (rất phổ biến ở các đợt tài liệu mới). Trước
+            // hết thử tìm tự viện CÙNG TỈNH đã có tên trùng khớp (chạy lại lệnh, hay lỡ
+            // trùng file trong 1 đợt import) để tái dùng đúng mã cũ thay vì phát mã mới —
+            // tránh tạo tự viện trùng lặp. Không tìm thấy mới cấp mã số tuần tự mới.
+            $normalizedName = Str::of($name)->lower()->squish()->toString();
+            $existing = Temple::withTrashed()
+                ->where('province_id', $province->id)
+                ->whereRaw('LOWER(TRIM(name)) = ?', [$normalizedName])
+                ->first();
+
+            $code = $existing ? $existing->code : $this->nextSequentialCode($province);
         }
 
         // Nhiều worker có thể cùng lúc xử lý 2 tài liệu trỏ về cùng 1 mã tự viện (vd
@@ -160,6 +165,43 @@ class TempleImportService
     private function truncate(?string $value, int $length = 50): ?string
     {
         return $value === null ? null : mb_substr(trim($value), 0, $length);
+    }
+
+    /**
+     * Cấp mã số tuần tự tiếp theo cho 1 tỉnh (dạng "0001", "0002"...) khi tài liệu
+     * không có mã thật. Dùng UPDATE nguyên tử của MySQL (LAST_INSERT_ID(expr) trong
+     * ON DUPLICATE KEY UPDATE) thay vì đọc-rồi-ghi ở tầng PHP, để 8 worker chạy song
+     * song không bao giờ cấp trùng số dù không có lock. Lần đầu tiên của 1 tỉnh, số
+     * bắt đầu được suy từ mã số lớn nhất đã tồn tại (kể cả mã thật trích từ AI), để
+     * không đè lên mã đã dùng.
+     */
+    private function nextSequentialCode(Province $province): string
+    {
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement(
+                'INSERT INTO temple_code_sequences (province_id, next_number, created_at, updated_at)
+                 SELECT ?, LAST_INSERT_ID(COALESCE(MAX(CAST(code AS UNSIGNED)), 0) + 1), NOW(), NOW()
+                 FROM temples WHERE province_id = ? AND code REGEXP \'^[0-9]+$\'
+                 ON DUPLICATE KEY UPDATE next_number = LAST_INSERT_ID(next_number + 1)',
+                [$province->id, $province->id]
+            );
+
+            $seq = (int) DB::selectOne('SELECT LAST_INSERT_ID() as id')->id;
+
+            return str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
+        }
+
+        // SQLite (test suite) không hỗ trợ REGEXP/ON DUPLICATE KEY/LAST_INSERT_ID(expr).
+        // Không cần nguyên tử tuyệt đối ở đây vì test không chạy nhiều worker song song —
+        // tính thẳng từ mã lớn nhất đang có trong bảng temples.
+        $max = Temple::withTrashed()
+            ->where('province_id', $province->id)
+            ->pluck('code')
+            ->filter(fn ($c) => ctype_digit((string) $c))
+            ->map(fn ($c) => (int) $c)
+            ->max() ?? 0;
+
+        return str_pad((string) ($max + 1), 4, '0', STR_PAD_LEFT);
     }
 
     /**
