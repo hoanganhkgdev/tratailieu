@@ -80,17 +80,23 @@ class TempleImportService
 
     private function finalize(Document $document, array $data, Province $province): void
     {
+        $name = $data['name'] ?? 'Chưa xác định';
+
         $code = $data['code'] ?? null;
         if (empty($code)) {
-            $code = 'TMP-'.Str::upper(Str::random(6));
+            // Không có mã thật trong văn bản (rất phổ biến ở các đợt tài liệu mới) —
+            // suy mã tạm TRỰC TIẾP từ tên đã chuẩn hoá (thường, gộp khoảng trắng) thay
+            // vì random: cùng 1 tên tự viện luôn ra cùng 1 mã, nên chạy lại lệnh hay lỡ
+            // trùng file trong 1 đợt import sẽ tự cập nhật vào đúng bản ghi cũ thay vì
+            // tạo thêm bản ghi trùng lặp. Đánh đổi: 2 tự viện thật trùng tên trong cùng
+            // 1 tỉnh sẽ bị gộp — hiếm hơn nhiều so với việc tạo trùng lặp hàng loạt.
+            $code = 'N-'.Str::upper(substr(md5(Str::of($name)->lower()->squish()->toString()), 0, 10));
         }
 
         // Nhiều worker có thể cùng lúc xử lý 2 tài liệu trỏ về cùng 1 mã tự viện (vd
         // upload trùng file). Khoá theo (tỉnh, mã) để việc ghi Temple + đồng bộ chức sắc
         // không chồng lấn giữa các job — chờ tối đa 15s rồi mới chịu thua.
-        Cache::lock("temple-import:{$province->id}:{$code}", 30)->block(15, function () use ($document, $data, $province, $code) {
-            $name = $data['name'] ?? 'Chưa xác định';
-
+        Cache::lock("temple-import:{$province->id}:{$code}", 30)->block(15, function () use ($document, $data, $province, $code, $name) {
             // updateOrCreate() làm 2 bước riêng (tìm rồi tạo) nên vẫn có thể đụng unique
             // (province_id, code) nếu lock bị timeout; upsert() là 1 câu lệnh DB atomic
             // nên an toàn tuyệt đối dù có race.
