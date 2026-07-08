@@ -83,19 +83,17 @@ class TempleImportService
     {
         $name = $data['name'] ?? 'Chưa xác định';
 
-        // Không dựa vào mã ghi trong văn bản nữa — tài liệu thực tế rất hay thiếu mã hoặc
-        // AI dễ lấy nhầm số khác (địa chỉ, điện thoại, số liệu rác trong file) làm mã, từng
-        // gây gộp nhầm nhiều tự viện khác nhau. Hệ thống tự quản lý mã, đơn giản và nhất quán
-        // cho mọi tỉnh: trước hết thử tìm tự viện CÙNG TỈNH đã có tên trùng khớp (chạy lại
-        // lệnh, hay lỡ trùng file trong 1 đợt import) để tái dùng đúng mã cũ, tránh tạo trùng
-        // lặp — không tìm thấy mới cấp mã số tuần tự mới.
-        $normalizedName = Str::of($name)->lower()->squish()->toString();
-        $existing = Temple::withTrashed()
-            ->where('province_id', $province->id)
-            ->whereRaw('LOWER(TRIM(name)) = ?', [$normalizedName])
-            ->first();
+        // KHÔNG dò theo tên tự viện để tái dùng mã nữa — tên chùa (vd "Chùa Bửu Sơn") rất
+        // hay trùng giữa nhiều tự viện THẬT khác nhau trong cùng tỉnh. Từng gộp nhầm hàng
+        // trăm tự viện khác nhau thành 1 record theo cách này khi chạy batch thật (6110
+        // file chỉ còn 4628 tự viện). Mỗi document giờ LUÔN ứng với đúng 1 tự viện riêng.
+        // Ngoại lệ duy nhất: tài liệu này đã từng được xử lý trước đó (bấm "Xử lý lại") và
+        // đã có temple_id — tái dùng đúng mã cũ của chính nó, không cấp mã mới mỗi lần retry.
+        $existingTemple = $document->temple_id
+            ? Temple::withTrashed()->find($document->temple_id)
+            : null;
 
-        $code = $existing ? $existing->code : $this->nextSequentialCode($province);
+        $code = $existingTemple?->code ?? $this->nextSequentialCode($province);
 
         // Nhiều worker có thể cùng lúc xử lý 2 tài liệu trỏ về cùng 1 mã tự viện (vd
         // upload trùng file). Khoá theo (tỉnh, mã) để việc ghi Temple + đồng bộ chức sắc
