@@ -79,6 +79,10 @@ class BulkImportTemplesCommand extends Command
     {
         $files = collect(scandir($path))
             ->reject(fn ($f) => in_array($f, ['.', '..', '.DS_Store']))
+            // File "._ten-goc.docx" là AppleDouble (resource fork/xattr) macOS tự sinh khi
+            // nén/copy — không phải hồ sơ thật, nhưng vẫn khớp đuôi .docx/.pdf nên phải lọc
+            // riêng, nếu không sẽ bị upload/xử lý AI nhầm thành 1 tài liệu.
+            ->reject(fn ($f) => str_starts_with($f, '._'))
             ->filter(fn ($f) => in_array(strtolower(pathinfo($f, PATHINFO_EXTENSION)), ['docx', 'pdf']))
             ->values();
 
