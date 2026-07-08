@@ -140,12 +140,12 @@ class TempleImportService
                 Monastic::create([
                     'temple_id'      => $temple->id,
                     'document_id'    => $document->id,
-                    'stt'            => $row['stt'] ?? null,
+                    'stt'            => $this->toNullableInt($row['stt'] ?? null),
                     'full_name'      => $row['full_name'] ?? 'Chưa xác định',
                     'religious_name' => $row['religious_name'] ?? null,
                     'rank'           => $row['rank'] ?? null,
                     'position'       => $row['position'] ?? null,
-                    'birth_year'     => $row['birth_year'] ?? null,
+                    'birth_year'     => $this->toNullableInt($row['birth_year'] ?? null),
                     'phone'          => $this->truncate($row['phone'] ?? null),
                 ]);
             }
@@ -164,6 +164,25 @@ class TempleImportService
     private function truncate(?string $value, int $length = 50): ?string
     {
         return $value === null ? null : mb_substr(trim($value), 0, $length);
+    }
+
+    /**
+     * AI thỉnh thoảng trả chuỗi "null"/"N/A" hoặc chuỗi không phải số cho field
+     * lẽ ra là số nguyên (birth_year, stt) thay vì JSON null thật — MySQL strict
+     * mode từ chối insert giá trị đó vào cột int, làm cả tài liệu bị fail. Ép về
+     * null nếu không phải số hợp lệ, thay vì để lỗi DB chặn toàn bộ quá trình.
+     */
+    private function toNullableInt(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && ctype_digit(trim($value))) {
+            return (int) trim($value);
+        }
+
+        return null;
     }
 
     /**
