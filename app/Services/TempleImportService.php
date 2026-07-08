@@ -168,39 +168,49 @@ class TempleImportService
 
     /**
      * Cấp mã số tuần tự tiếp theo cho 1 tỉnh (dạng "0001", "0002"...) khi tài liệu
-     * không có mã thật. Dùng UPDATE nguyên tử của MySQL (LAST_INSERT_ID(expr) trong
-     * ON DUPLICATE KEY UPDATE) thay vì đọc-rồi-ghi ở tầng PHP, để 8 worker chạy song
-     * song không bao giờ cấp trùng số dù không có lock. Lần đầu tiên của 1 tỉnh, số
-     * bắt đầu được suy từ mã số lớn nhất đã tồn tại (kể cả mã thật trích từ AI), để
-     * không đè lên mã đã dùng.
+     * không có mã thật. Lần đầu tiên của 1 tỉnh, số bắt đầu được suy từ mã số lớn
+     * nhất đã tồn tại (kể cả mã thật trích từ AI trước đây, nếu còn), để không đè
+     * lên mã đã dùng.
+     *
+     * Từng thử atomic UPDATE kiểu MySQL (LAST_INSERT_ID(expr) trong INSERT...SELECT)
+     * — ra kết quả sai khó hiểu ở thực tế. Sau đó thử transaction + lockForUpdate()
+     * thuần SQL — 8 worker cùng lúc "INSERT IGNORE" dòng đếm MỚI (lần đầu của 1
+     * tỉnh) bị MySQL báo deadlock thật (SQLSTATE 40001, đã tái hiện được bằng test
+     * 8 tiến trình song song). Fix cuối: khoá bằng Cache::lock() (đã dùng ổn định ở
+     * chỗ khác trong file này, không đụng InnoDB row lock nên không thể deadlock)
+     * để cả nhóm 8 worker phải xếp hàng tuần tự khi vào đoạn tính số này.
      */
     private function nextSequentialCode(Province $province): string
     {
-        if (DB::getDriverName() === 'mysql') {
+        return Cache::lock("temple-code-seq:{$province->id}", 30)->block(15, function () use ($province) {
+            $ignoreKeyword = DB::getDriverName() === 'sqlite' ? 'INSERT OR IGNORE' : 'INSERT IGNORE';
+
             DB::statement(
-                'INSERT INTO temple_code_sequences (province_id, next_number, created_at, updated_at)
-                 SELECT ?, LAST_INSERT_ID(COALESCE(MAX(CAST(code AS UNSIGNED)), 0) + 1), NOW(), NOW()
-                 FROM temples WHERE province_id = ? AND code REGEXP \'^[0-9]+$\'
-                 ON DUPLICATE KEY UPDATE next_number = LAST_INSERT_ID(next_number + 1)',
-                [$province->id, $province->id]
+                "{$ignoreKeyword} INTO temple_code_sequences (province_id, next_number, created_at, updated_at) VALUES (?, 0, ?, ?)",
+                [$province->id, now(), now()]
             );
 
-            $seq = (int) DB::selectOne('SELECT LAST_INSERT_ID() as id')->id;
+            $row = DB::table('temple_code_sequences')->where('province_id', $province->id)->first();
 
-            return str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
-        }
+            $next = (int) $row->next_number;
 
-        // SQLite (test suite) không hỗ trợ REGEXP/ON DUPLICATE KEY/LAST_INSERT_ID(expr).
-        // Không cần nguyên tử tuyệt đối ở đây vì test không chạy nhiều worker song song —
-        // tính thẳng từ mã lớn nhất đang có trong bảng temples.
-        $max = Temple::withTrashed()
-            ->where('province_id', $province->id)
-            ->pluck('code')
-            ->filter(fn ($c) => ctype_digit((string) $c))
-            ->map(fn ($c) => (int) $c)
-            ->max() ?? 0;
+            if ($next === 0) {
+                $next = Temple::withTrashed()
+                    ->where('province_id', $province->id)
+                    ->pluck('code')
+                    ->filter(fn ($c) => ctype_digit((string) $c))
+                    ->map(fn ($c) => (int) $c)
+                    ->max() ?? 0;
+            }
 
-        return str_pad((string) ($max + 1), 4, '0', STR_PAD_LEFT);
+            $next++;
+
+            DB::table('temple_code_sequences')
+                ->where('province_id', $province->id)
+                ->update(['next_number' => $next, 'updated_at' => now()]);
+
+            return str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+        });
     }
 
     /**
