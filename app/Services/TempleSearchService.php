@@ -19,6 +19,14 @@ class TempleSearchService
     private const EXACT_TIER_THRESHOLD = 0.8;
 
     /**
+     * Ngưỡng cho tầng 3 (toàn field: địa chỉ, số điện thoại, mã...) — thấp hơn tầng 1
+     * vì các field này ngắn/đơn nghĩa hơn "monastics" nhưng không tuyệt đối như tên
+     * riêng, đo thực tế: khớp đúng số điện thoại/địa chỉ ra 0.66-0.86, khớp mờ do
+     * typo-tolerance của câu KHÔNG tồn tại (như tên người không có thật) chỉ ra ~0.3.
+     */
+    private const FALLBACK_TIER_THRESHOLD = 0.5;
+
+    /**
      * Tìm 3 tầng, dừng ngay khi tầng nào có kết quả — ưu tiên độ CHÍNH XÁC hơn độ
      * "chịu lỗi" của full-text search mặc định, vì người dùng gõ đúng tên 1 người/1
      * chùa cụ thể luôn mong đợi hoặc ra đúng người đó, hoặc báo không tìm thấy, chứ
@@ -36,9 +44,9 @@ class TempleSearchService
      * threshold). Nên tầng này bỏ Meilisearch, tra thẳng bảng monastics bằng LIKE
      * khớp chính xác chuỗi con — không chịu lỗi chính tả, nhưng không còn nhiễu.
      *
-     * Tầng 3 — phương án cuối, giữ hành vi full-text mặc định (chịu lỗi chính tả,
-     * khớp địa chỉ/số điện thoại/khớp 1 phần câu hỏi) cho các câu hỏi không phải tìm
-     * đích danh 1 người/1 chùa.
+     * Tầng 3 — phương án cuối cho địa chỉ/số điện thoại/câu hỏi không tìm đích danh 1
+     * người/1 chùa: vẫn bắt buộc khớp đủ mọi từ (matchingStrategy=all) trên toàn bộ
+     * field, nhưng ngưỡng thấp hơn tầng 1 vì các field này đa dạng độ dài hơn.
      */
     public function search(string $query, int $limit = 5): Collection
     {
@@ -70,6 +78,10 @@ class TempleSearchService
             }
 
             return Temple::search($query)
+                ->options([
+                    'matchingStrategy'      => 'all',
+                    'rankingScoreThreshold' => self::FALLBACK_TIER_THRESHOLD,
+                ])
                 ->query(fn ($builder) => $builder->with(['province', 'monastics', 'latestDocument']))
                 ->take($limit)
                 ->get();
