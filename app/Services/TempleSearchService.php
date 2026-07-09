@@ -18,10 +18,12 @@ class TempleSearchService
     private const CANDIDATE_POOL_SIZE = 30;
 
     /**
-     * Chỉ khớp trên 4 field: tên tự viện, tên trụ trì, số điện thoại trụ trì, địa chỉ
-     * — KHÔNG tìm theo tên chức sắc/thành viên thường trong chùa.
+     * Chỉ khớp trên 5 field: tên tự viện, tên trụ trì, số điện thoại trụ trì, địa chỉ,
+     * tỉnh/thành — KHÔNG tìm theo tên chức sắc/thành viên thường trong chùa. Có
+     * "province" riêng để gõ kèm tên tỉnh lọc được khi tên chùa trùng ở nhiều nơi
+     * (vd "Chùa Phật Quang" có ở 8 tỉnh khác nhau).
      */
-    private const SEARCHABLE_ATTRIBUTES = ['head_monk', 'name', 'phone', 'address'];
+    private const SEARCHABLE_ATTRIBUTES = ['head_monk', 'name', 'phone', 'address', 'province'];
 
     /**
      * Tìm 2 tầng, dừng ngay khi tầng nào có kết quả — ưu tiên độ CHÍNH XÁC hơn độ
@@ -88,15 +90,40 @@ class TempleSearchService
             ->query(fn ($builder) => $builder->with(['province', 'monastics', 'latestDocument']))
             ->take(self::CANDIDATE_POOL_SIZE)
             ->get()
-            ->filter(fn (Temple $t) => collect($attributes)->contains(
-                fn (string $attr) => $this->containsExact($t->{$attr}, $query)
-            ))
+            ->filter(fn (Temple $t) => $this->containsAllWords($t, $attributes, $query))
             ->take($limit)
             ->values();
     }
 
-    private function containsExact(?string $haystack, string $needle): bool
+    /**
+     * Xác minh: MỌI từ trong câu hỏi đều xuất hiện đâu đó trong các field cho phép —
+     * không bắt buộc nằm trong CÙNG 1 field, vì câu hỏi có thể ghép tên chùa (field
+     * "name") với tên tỉnh (field "province") — mỗi phần khớp ở field riêng của nó,
+     * không phải khớp cả cụm liền mạch trong 1 field duy nhất.
+     *
+     * @param  array<int, string>  $attributes
+     */
+    private function containsAllWords(Temple $temple, array $attributes, string $query): bool
     {
-        return $haystack !== null && mb_stripos($haystack, $needle) !== false;
+        $haystack = collect($attributes)
+            // "province" là quan hệ (belongsTo), không phải cột string trực tiếp trên
+            // Temple — phải lấy $temple->province?->name thay vì $temple->province.
+            ->map(fn (string $attr) => $attr === 'province' ? $temple->province?->name : $temple->{$attr})
+            ->filter()
+            ->implode(' ');
+
+        if ($haystack === '') {
+            return false;
+        }
+
+        $words = array_filter(preg_split('/\s+/u', $query) ?: []);
+
+        foreach ($words as $word) {
+            if (mb_stripos($haystack, $word) === false) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

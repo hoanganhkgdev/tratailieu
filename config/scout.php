@@ -140,13 +140,15 @@ return [
         'host' => env('MEILISEARCH_HOST', 'http://localhost:7700'),
         'key' => env('MEILISEARCH_KEY'),
         'index-settings' => [
-            // Chỉ cho phép tìm trên 4 field: tên tự viện, tên trụ trì, số điện thoại,
-            // địa chỉ — KHÔNG tìm theo tên chức sắc/thành viên thường trong chùa (dễ
-            // gây nhiễu vì 1 tự viện có thể có hàng chục người). Ưu tiên rõ
-            // head_monk/name trước, và đẩy "exactness" lên sớm hơn trong ranking rules
-            // để khớp chính xác cả cụm từ luôn thắng khớp rời rạc từng từ.
+            // Chỉ cho phép tìm trên 5 field: tên tự viện, tên trụ trì, số điện thoại,
+            // địa chỉ, tỉnh/thành — KHÔNG tìm theo tên chức sắc/thành viên thường
+            // trong chùa (dễ gây nhiễu vì 1 tự viện có thể có hàng chục người). Có
+            // "province" riêng để lọc được khi tên chùa trùng ở nhiều tỉnh (vd "Chùa
+            // Phật Quang" có ở 8 tỉnh khác nhau) — gõ kèm tên tỉnh mới ra đúng chùa.
+            // Ưu tiên rõ head_monk/name trước, và đẩy "exactness" lên sớm hơn trong
+            // ranking rules để khớp chính xác cả cụm từ luôn thắng khớp rời rạc từng từ.
             'temples' => [
-                'searchableAttributes' => ['head_monk', 'name', 'phone', 'address'],
+                'searchableAttributes' => ['head_monk', 'name', 'phone', 'address', 'province'],
                 'rankingRules' => ['words', 'exactness', 'proximity', 'typo', 'attribute', 'sort'],
             ],
         ],
