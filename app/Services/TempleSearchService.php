@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Monastic;
 use App\Models\Temple;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -10,10 +11,34 @@ use Meilisearch\Exceptions\ApiException;
 class TempleSearchService
 {
     /**
-     * Meilisearch tự tách từ, chuẩn hoá dấu tiếng Việt, chịu lỗi chính tả và tự
-     * xếp hạng theo độ liên quan (ranking rules mặc định: words, typo, proximity,
-     * attribute, sort, exactness) — không cần tự viết logic so khớp/chấm điểm
-     * bằng tay như bản LIKE cũ.
+     * Điểm liên quan tối thiểu (thang 0-1 của Meilisearch) để 1 kết quả được coi là
+     * "khớp thật" ở tầng tìm chính xác (tên tự viện / tên trụ trì). Hiệu chỉnh bằng
+     * dữ liệu thật: khớp đúng luôn ra 0.95-1.0, khớp mờ do typo-tolerance (vd "Trang"
+     * tự sửa nhầm thành "Quang"/"Trung") chỉ ra 0.44-0.77 — 0.8 tách rõ 2 nhóm này.
+     */
+    private const EXACT_TIER_THRESHOLD = 0.8;
+
+    /**
+     * Tìm 3 tầng, dừng ngay khi tầng nào có kết quả — ưu tiên độ CHÍNH XÁC hơn độ
+     * "chịu lỗi" của full-text search mặc định, vì người dùng gõ đúng tên 1 người/1
+     * chùa cụ thể luôn mong đợi hoặc ra đúng người đó, hoặc báo không tìm thấy, chứ
+     * không muốn thấy danh sách "gần giống" không liên quan.
+     *
+     * Tầng 1 — tên tự viện / tên trụ trì: Meilisearch, bắt buộc khớp ĐỦ mọi từ trong
+     * câu hỏi (matchingStrategy=all, mặc định chỉ cần khớp 1 phần) + ngưỡng điểm cao,
+     * chỉ tìm trên 2 field này (attributesToSearchOn) để không bị field "monastics"
+     * (chuỗi nối tên CẢ CHỤC chức sắc) làm nhiễu điểm.
+     *
+     * Tầng 2 — tên 1 chức sắc thường (không phải trụ trì): field "monastics" là 1
+     * chuỗi dài nối tên nhiều người, tên các người khác nhau nằm rải rác nên dù dùng
+     * matchingStrategy=all, điểm của 1 khớp ĐÚNG cũng chỉ ngang điểm của nhiều khớp
+     * SAI (đã kiểm chứng thực tế: cùng dao động quanh 0.3, không tách được bằng
+     * threshold). Nên tầng này bỏ Meilisearch, tra thẳng bảng monastics bằng LIKE
+     * khớp chính xác chuỗi con — không chịu lỗi chính tả, nhưng không còn nhiễu.
+     *
+     * Tầng 3 — phương án cuối, giữ hành vi full-text mặc định (chịu lỗi chính tả,
+     * khớp địa chỉ/số điện thoại/khớp 1 phần câu hỏi) cho các câu hỏi không phải tìm
+     * đích danh 1 người/1 chùa.
      */
     public function search(string $query, int $limit = 5): Collection
     {
@@ -24,29 +49,30 @@ class TempleSearchService
         }
 
         try {
-            // Tìm 2 tầng: trước hết CHỈ khớp trên tên tự viện + tên trụ trì (độ chính
-            // xác cao). Field "monastics" gộp chung tên của CẢ CHỤC chức sắc trong 1
-            // tự viện — nếu tìm luôn cả field này ngay từ đầu, 1 tự viện có nhiều chức
-            // sắc cùng họ/pháp danh gần giống câu hỏi (vd nhiều vị cùng bắt đầu "Thích
-            // Lệ...") sẽ cộng dồn điểm khớp và lấn át đúng kết quả cần tìm (vd hỏi tên
-            // trụ trì cụ thể nhưng ra tự viện khác có DANH SÁCH chức sắc trùng vài từ).
-            // Chỉ mở rộng tìm cả monastics/địa chỉ khi tầng 1 không đủ kết quả.
-            $primary = Temple::search($query)
-                ->options(['attributesToSearchOn' => ['head_monk', 'name']])
+            $exact = Temple::search($query)
+                ->options([
+                    'attributesToSearchOn'  => ['head_monk', 'name'],
+                    'matchingStrategy'      => 'all',
+                    'rankingScoreThreshold' => self::EXACT_TIER_THRESHOLD,
+                ])
                 ->query(fn ($builder) => $builder->with(['province', 'monastics', 'latestDocument']))
                 ->take($limit)
                 ->get();
 
-            if ($primary->count() >= $limit) {
-                return $primary;
+            if ($exact->isNotEmpty()) {
+                return $exact;
             }
 
-            $fallback = Temple::search($query)
+            $byMonastic = $this->searchByMonasticName($query, $limit);
+
+            if ($byMonastic->isNotEmpty()) {
+                return $byMonastic;
+            }
+
+            return Temple::search($query)
                 ->query(fn ($builder) => $builder->with(['province', 'monastics', 'latestDocument']))
                 ->take($limit)
                 ->get();
-
-            return $primary->concat($fallback)->unique('id')->take($limit)->values();
         } catch (ApiException $e) {
             // Index chỉ được Meilisearch tự tạo khi có tự viện đầu tiên được lưu —
             // DB rỗng (mới cài, hoặc chưa import gì) thì index chưa tồn tại, coi
@@ -59,5 +85,25 @@ class TempleSearchService
 
             throw $e;
         }
+    }
+
+    private function searchByMonasticName(string $query, int $limit): Collection
+    {
+        $templeIds = Monastic::query()
+            ->where(function ($w) use ($query) {
+                $w->where('full_name', 'LIKE', '%'.$query.'%')
+                    ->orWhere('religious_name', 'LIKE', '%'.$query.'%');
+            })
+            ->pluck('temple_id')
+            ->unique()
+            ->take($limit);
+
+        if ($templeIds->isEmpty()) {
+            return new Collection();
+        }
+
+        return Temple::whereIn('id', $templeIds)
+            ->with(['province', 'monastics', 'latestDocument'])
+            ->get();
     }
 }
