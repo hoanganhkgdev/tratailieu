@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Province;
 use App\Models\Temple;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -18,12 +19,10 @@ class TempleSearchService
     private const CANDIDATE_POOL_SIZE = 30;
 
     /**
-     * Chỉ khớp trên 5 field: tên tự viện, tên trụ trì, số điện thoại trụ trì, địa chỉ,
-     * tỉnh/thành — KHÔNG tìm theo tên chức sắc/thành viên thường trong chùa. Có
-     * "province" riêng để gõ kèm tên tỉnh lọc được khi tên chùa trùng ở nhiều nơi
-     * (vd "Chùa Phật Quang" có ở 8 tỉnh khác nhau).
+     * Chỉ khớp trên 4 field: tên tự viện, tên trụ trì, số điện thoại trụ trì, địa chỉ
+     * — KHÔNG tìm theo tên chức sắc/thành viên thường trong chùa.
      */
-    private const SEARCHABLE_ATTRIBUTES = ['head_monk', 'name', 'phone', 'address', 'province'];
+    private const SEARCHABLE_ATTRIBUTES = ['head_monk', 'name', 'phone', 'address'];
 
     /**
      * Tìm 2 tầng, dừng ngay khi tầng nào có kết quả — ưu tiên độ CHÍNH XÁC hơn độ
@@ -35,11 +34,17 @@ class TempleSearchService
      * và phát hiện bộ tách từ Charabia tự chuẩn hoá dấu tiếng Việt ở tầng token hoá
      * (độc lập với typoTolerance, đã tắt thử không đổi kết quả), khiến 2 tên khác
      * nghĩa hoàn toàn như "Nhân"/"Nhẫn" được chấm điểm NGANG NHAU hoặc kết quả SAI lại
-     * còn cao hơn kết quả ĐÚNG (vd "Nhân" ra 1.0 trong khi 3 chùa có đúng "Nhẫn" chỉ ra
-     * 0.333) — threshold sẽ vô tình loại mất kết quả đúng trước khi kịp xác minh lại.
-     * Thay vào đó: lấy dư CANDIDATE_POOL_SIZE ứng viên (chỉ cần matchingStrategy=all
-     * để đủ mọi từ có mặt), rồi tự xác minh lại bằng mb_stripos (PHP, phân biệt dấu
-     * chuẩn) — chỉ giữ những kết quả field thực sự CHỨA đúng chuỗi đã gõ.
+     * còn cao hơn kết quả ĐÚNG — threshold sẽ vô tình loại mất kết quả đúng trước khi
+     * kịp xác minh lại. Thay vào đó: lấy dư CANDIDATE_POOL_SIZE ứng viên (chỉ cần
+     * matchingStrategy=all để đủ mọi từ có mặt), rồi tự xác minh lại bằng mb_stripos
+     * (PHP, phân biệt dấu chuẩn) — chỉ giữ kết quả field thực sự CHỨA đúng chuỗi đã gõ
+     * NGUYÊN CỤM (không tách rời từng từ rồi khớp rải rác qua nhiều field — từng thử
+     * và bị lỗi ngược: "chùa" là từ chung chung xuất hiện ở hầu hết tên tự viện, ghép
+     * với 1 trụ trì bất kỳ có tên trùng vài từ khác cũng đủ "khớp đủ mọi từ").
+     *
+     * Câu hỏi có thể ghép thêm tên tỉnh ở cuối (vd "chùa phật quang an giang" — 1 tên
+     * chùa phổ biến có ở hơn chục tỉnh) để lọc chính xác — tách riêng tên tỉnh ra khỏi
+     * câu hỏi trước khi tìm, rồi lọc CHÍNH XÁC theo province_id (không suy đoán).
      *
      * Tầng 1 — tên tự viện / tên trụ trì: chỉ tìm trên 2 field này để không bị các
      * field khác làm nhiễu.
@@ -56,13 +61,15 @@ class TempleSearchService
         }
 
         try {
-            $exact = $this->searchAndVerify($query, ['head_monk', 'name'], $limit);
+            [$coreQuery, $province] = $this->extractTrailingProvince($query);
+
+            $exact = $this->searchAndVerify($coreQuery, ['head_monk', 'name'], $province, $limit);
 
             if ($exact->isNotEmpty()) {
                 return $exact;
             }
 
-            return $this->searchAndVerify($query, self::SEARCHABLE_ATTRIBUTES, $limit);
+            return $this->searchAndVerify($coreQuery, self::SEARCHABLE_ATTRIBUTES, $province, $limit);
         } catch (ApiException $e) {
             // Index chỉ được Meilisearch tự tạo khi có tự viện đầu tiên được lưu —
             // DB rỗng (mới cài, hoặc chưa import gì) thì index chưa tồn tại, coi
@@ -80,50 +87,61 @@ class TempleSearchService
     /**
      * @param  array<int, string>  $attributes
      */
-    private function searchAndVerify(string $query, array $attributes, int $limit): Collection
+    private function searchAndVerify(string $query, array $attributes, ?Province $province, int $limit): Collection
     {
+        if ($query === '') {
+            // Câu hỏi chỉ toàn tên tỉnh (vd chỉ gõ "An Giang") — không có gì để khớp
+            // theo tên/trụ trì/địa chỉ, bỏ qua thay vì trả về CẢ tỉnh.
+            return new Collection();
+        }
+
         return Temple::search($query)
             ->options([
                 'attributesToSearchOn' => $attributes,
                 'matchingStrategy'     => 'all',
             ])
-            ->query(fn ($builder) => $builder->with(['province', 'monastics', 'latestDocument']))
+            ->query(function ($builder) use ($province) {
+                $builder = $builder->with(['province', 'monastics', 'latestDocument']);
+
+                return $province ? $builder->where('province_id', $province->id) : $builder;
+            })
             ->take(self::CANDIDATE_POOL_SIZE)
             ->get()
-            ->filter(fn (Temple $t) => $this->containsAllWords($t, $attributes, $query))
+            ->filter(fn (Temple $t) => collect($attributes)->contains(
+                fn (string $attr) => $this->containsExact($t->{$attr}, $query)
+            ))
             ->take($limit)
             ->values();
     }
 
     /**
-     * Xác minh: MỌI từ trong câu hỏi đều xuất hiện đâu đó trong các field cho phép —
-     * không bắt buộc nằm trong CÙNG 1 field, vì câu hỏi có thể ghép tên chùa (field
-     * "name") với tên tỉnh (field "province") — mỗi phần khớp ở field riêng của nó,
-     * không phải khớp cả cụm liền mạch trong 1 field duy nhất.
+     * Tách tên tỉnh (nếu có) ra khỏi câu hỏi — tìm tên tỉnh/alias xuất hiện trong câu
+     * hỏi, cắt bỏ đoạn đó ra khỏi chuỗi, phần còn lại dùng làm câu hỏi "lõi" để khớp
+     * tên/trụ trì/địa chỉ như bình thường.
      *
-     * @param  array<int, string>  $attributes
+     * @return array{0: string, 1: ?Province}
      */
-    private function containsAllWords(Temple $temple, array $attributes, string $query): bool
+    private function extractTrailingProvince(string $query): array
     {
-        $haystack = collect($attributes)
-            // "province" là quan hệ (belongsTo), không phải cột string trực tiếp trên
-            // Temple — phải lấy $temple->province?->name thay vì $temple->province.
-            ->map(fn (string $attr) => $attr === 'province' ? $temple->province?->name : $temple->{$attr})
-            ->filter()
-            ->implode(' ');
+        foreach (Province::all() as $province) {
+            foreach (array_merge([$province->name], $province->aliases ?? []) as $name) {
+                $pos = mb_stripos($query, $name);
 
-        if ($haystack === '') {
-            return false;
-        }
+                if ($pos === false) {
+                    continue;
+                }
 
-        $words = array_filter(preg_split('/\s+/u', $query) ?: []);
+                $core = trim(mb_substr($query, 0, $pos).' '.mb_substr($query, $pos + mb_strlen($name)));
 
-        foreach ($words as $word) {
-            if (mb_stripos($haystack, $word) === false) {
-                return false;
+                return [$core !== '' ? $core : $query, $province];
             }
         }
 
-        return true;
+        return [$query, null];
+    }
+
+    private function containsExact(?string $haystack, string $needle): bool
+    {
+        return $haystack !== null && mb_stripos($haystack, $needle) !== false;
     }
 }
