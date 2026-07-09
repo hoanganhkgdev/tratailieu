@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Monastic;
 use App\Models\Temple;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Meilisearch\Exceptions\ApiException;
 
@@ -57,6 +58,13 @@ class TempleSearchService
         }
 
         try {
+            // Bản thân Meilisearch (bộ tách từ Charabia) tự CHUẨN HOÁ DẤU tiếng Việt ở
+            // tầng token hoá — độc lập với typoTolerance (đã tắt thử, không đổi kết
+            // quả) — nên "Nhân" và "Nhẫn" (2 tên khác hẳn nghĩa) bị token hoá giống
+            // nhau và chấm điểm y hệt khớp tuyệt đối. Lọc xác minh lại bằng chuỗi con
+            // PHP (mb_stripos, phân biệt dấu chuẩn) sau khi có kết quả từ Meilisearch,
+            // loại bỏ những "khớp" mà Meilisearch báo nhưng thực ra field không hề
+            // chứa đúng chuỗi đã gõ.
             $exact = Temple::search($query)
                 ->options([
                     'attributesToSearchOn'  => ['head_monk', 'name'],
@@ -65,7 +73,9 @@ class TempleSearchService
                 ])
                 ->query(fn ($builder) => $builder->with(['province', 'monastics', 'latestDocument']))
                 ->take($limit)
-                ->get();
+                ->get()
+                ->filter(fn (Temple $t) => $this->containsExact($t->head_monk, $query) || $this->containsExact($t->name, $query))
+                ->values();
 
             if ($exact->isNotEmpty()) {
                 return $exact;
@@ -101,10 +111,22 @@ class TempleSearchService
 
     private function searchByMonasticName(string $query, int $limit): Collection
     {
+        // Collation mặc định của cột (utf8mb4_unicode_ci) coi các nguyên âm khác dấu
+        // là tương đương (đã kiểm chứng: 'Thích Minh Nhân' LIKE '%Nhẫn%' → true dù 2
+        // tên khác nghĩa hoàn toàn) — ép COLLATE utf8mb4_0900_as_ci (phân biệt dấu,
+        // không phân biệt hoa/thường) chỉ khi chạy MySQL thật; SQLite (test) không hỗ
+        // trợ collation này nên giữ LIKE thường.
+        $isMysql = DB::getDriverName() === 'mysql';
+
         $templeIds = Monastic::query()
-            ->where(function ($w) use ($query) {
-                $w->where('full_name', 'LIKE', '%'.$query.'%')
-                    ->orWhere('religious_name', 'LIKE', '%'.$query.'%');
+            ->where(function ($w) use ($query, $isMysql) {
+                if ($isMysql) {
+                    $w->whereRaw('full_name COLLATE utf8mb4_0900_as_ci LIKE ?', ['%'.$query.'%'])
+                        ->orWhereRaw('religious_name COLLATE utf8mb4_0900_as_ci LIKE ?', ['%'.$query.'%']);
+                } else {
+                    $w->where('full_name', 'LIKE', '%'.$query.'%')
+                        ->orWhere('religious_name', 'LIKE', '%'.$query.'%');
+                }
             })
             ->pluck('temple_id')
             ->unique()
@@ -117,5 +139,10 @@ class TempleSearchService
         return Temple::whereIn('id', $templeIds)
             ->with(['province', 'monastics', 'latestDocument'])
             ->get();
+    }
+
+    private function containsExact(?string $haystack, string $needle): bool
+    {
+        return $haystack !== null && mb_stripos($haystack, $needle) !== false;
     }
 }
