@@ -140,14 +140,13 @@ return [
         'host' => env('MEILISEARCH_HOST', 'http://localhost:7700'),
         'key' => env('MEILISEARCH_KEY'),
         'index-settings' => [
-            // Mặc định Meilisearch coi mọi field ngang nhau khi xếp hạng — tìm theo
-            // tên trụ trì hay bị các tự viện KHÁC (có head_monk chỉ trùng vài từ như
-            // "Thích", "Đại đức"...) hoặc trùng từ rải rác trong "monastics" (danh
-            // sách dài chức sắc) chen lên ngang bằng kết quả đúng. Ưu tiên rõ field
+            // Chỉ cho phép tìm trên 4 field: tên tự viện, tên trụ trì, số điện thoại,
+            // địa chỉ — KHÔNG tìm theo tên chức sắc/thành viên thường trong chùa (dễ
+            // gây nhiễu vì 1 tự viện có thể có hàng chục người). Ưu tiên rõ
             // head_monk/name trước, và đẩy "exactness" lên sớm hơn trong ranking rules
             // để khớp chính xác cả cụm từ luôn thắng khớp rời rạc từng từ.
             'temples' => [
-                'searchableAttributes' => ['head_monk', 'name', 'monastics', 'address', 'province', 'code', 'phone'],
+                'searchableAttributes' => ['head_monk', 'name', 'phone', 'address'],
                 'rankingRules' => ['words', 'exactness', 'proximity', 'typo', 'attribute', 'sort'],
             ],
         ],

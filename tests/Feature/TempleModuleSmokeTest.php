@@ -163,7 +163,7 @@ class TempleModuleSmokeTest extends TestCase
         $this->assertModelMissing($failedDoc);
     }
 
-    public function test_temple_search_service_matches_by_name_address_and_monastic(): void
+    public function test_temple_search_service_matches_by_name_head_monk_phone_and_address(): void
     {
         $province = Province::create(['name' => 'An Giang', 'aliases' => ['Kiên Giang']]);
         $temple = Temple::create([
@@ -175,6 +175,8 @@ class TempleModuleSmokeTest extends TestCase
             'head_monk'   => 'Thích Minh Tâm',
             'phone'       => '0329759936',
         ]);
+        // Chức sắc thường (không phải trụ trì) — KHÔNG được tìm ra qua tên người này,
+        // chỉ 4 field của chính tự viện (tên, trụ trì, sđt, địa chỉ) mới khớp được.
         Monastic::create([
             'temple_id'      => $temple->id,
             'full_name'      => 'Phạm Thanh Lâm',
@@ -189,8 +191,10 @@ class TempleModuleSmokeTest extends TestCase
         // hoa/thường cho ký tự có dấu như MySQL thật (đã xác nhận riêng qua tinker
         // với MySQL rằng "dân bửu" khớp được "CHÙA DÂN BỬU").
         $this->assertTrue($search->search('DÂN BỬU')->contains('id', $temple->id));
+        $this->assertTrue($search->search('Thích Minh Tâm')->contains('id', $temple->id));
         $this->assertTrue($search->search('0329759936')->contains('id', $temple->id));
-        $this->assertTrue($search->search('Thích Minh Tri')->contains('id', $temple->id));
+        $this->assertTrue($search->search('Kinh Dài')->contains('id', $temple->id));
+        $this->assertTrue($search->search('Thích Minh Tri')->isEmpty());
         $this->assertTrue($search->search('không tồn tại xyz')->isEmpty());
     }
 

@@ -62,12 +62,13 @@ class Temple extends Model
 
     protected function makeAllSearchableUsing($query)
     {
-        return $query->with(['province', 'monastics']);
+        return $query->with('province');
     }
 
     /**
-     * Gộp cả tên/pháp danh chức sắc vào đây để tìm được chùa qua tên 1 vị tăng ni,
-     * không chỉ qua thông tin của riêng tự viện.
+     * Chỉ index các field cho phép tìm kiếm: tên tự viện, tên trụ trì, số điện thoại
+     * trụ trì, địa chỉ — KHÔNG gộp tên chức sắc/thành viên thường trong chùa vào đây
+     * (tìm theo tên 1 người bất kỳ trong danh sách chức sắc dễ gây nhiễu kết quả).
      */
     public function toSearchableArray(): array
     {
@@ -80,9 +81,6 @@ class Temple extends Model
             'address'     => $this->address,
             'head_monk'   => $this->head_monk,
             'phone'       => $this->phone,
-            'monastics'   => $this->monastics
-                ->map(fn (Monastic $m) => trim("{$m->full_name} {$m->religious_name} {$m->rank} {$m->position}"))
-                ->implode(' | '),
         ];
     }
 }
