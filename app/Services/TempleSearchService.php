@@ -69,7 +69,27 @@ class TempleSearchService
                 return $exact;
             }
 
-            return $this->searchAndVerify($coreQuery, self::SEARCHABLE_ATTRIBUTES, $province, $limit);
+            $fallback = $this->searchAndVerify($coreQuery, self::SEARCHABLE_ATTRIBUTES, $province, $limit);
+
+            if ($fallback->isNotEmpty()) {
+                return $fallback;
+            }
+
+            // Tên tỉnh/alias trùng ngẫu nhiên với 1 phần tên người (vd "Quảng Nam" vừa
+            // là alias tỉnh Đà Nẵng vừa có thể là 1 phần pháp danh "Thích Quảng Nam")
+            // khiến tách nhầm và lọc mất kết quả đúng — nếu tách tỉnh mà không ra gì,
+            // thử lại với NGUYÊN câu hỏi (không tách tỉnh) trước khi chịu thua.
+            if ($province !== null) {
+                $exact = $this->searchAndVerify($query, ['head_monk', 'name'], null, $limit);
+
+                if ($exact->isNotEmpty()) {
+                    return $exact;
+                }
+
+                return $this->searchAndVerify($query, self::SEARCHABLE_ATTRIBUTES, null, $limit);
+            }
+
+            return $fallback;
         } catch (ApiException $e) {
             // Index chỉ được Meilisearch tự tạo khi có tự viện đầu tiên được lưu —
             // DB rỗng (mới cài, hoặc chưa import gì) thì index chưa tồn tại, coi
