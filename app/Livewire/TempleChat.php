@@ -95,7 +95,10 @@ class TempleChat extends Component
 
         $this->question = '';
 
-        $temples = app(TempleSearchService::class)->search($question);
+        // Limit 10 (thay vì mặc định 5) — chế độ liệt kê danh sách cần đủ số lượng để
+        // hữu ích khi 1 tên chùa trùng ở nhiều tỉnh (vd "Chùa Phật Quang" có ở hơn
+        // chục tỉnh), giúp người dùng thấy đủ để chọn tỉnh cần gõ thêm.
+        $temples = app(TempleSearchService::class)->search($question, limit: 10);
         $answer = app(TempleChatService::class)->ask($question, $temples);
 
         Message::create([

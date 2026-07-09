@@ -2,90 +2,96 @@
 
 namespace App\Services;
 
+use App\Models\Monastic;
+use App\Models\Temple;
 use Illuminate\Support\Collection;
-use OpenAI\Laravel\Facades\OpenAI;
 
 class TempleChatService
 {
-    private const SYSTEM_PROMPT = <<<PROMPT
-Bạn là trợ lý tra cứu thông tin tự viện Phật giáo Việt Nam cho quản trị viên nội bộ.
-Chỉ trả lời dựa trên dữ liệu được cung cấp trong tin nhắn, KHÔNG suy đoán hay bổ sung
-thông tin không có trong dữ liệu.
-
-Nếu không có tự viện nào phù hợp với câu hỏi trong dữ liệu, chỉ cần nói ngắn gọn là
-không tìm thấy, không cần theo định dạng bên dưới.
-
-Nếu có, LUÔN trình bày mỗi tự viện liên quan theo đúng định dạng Markdown sau, giữ nguyên
-cấu trúc dù câu hỏi chỉ hỏi 1 chi tiết cụ thể:
-
-### {số}. {Tên tự viện} ({Tỉnh/thành})
-- Mã tự viện: {mã}
-- Địa chỉ: {địa chỉ}
-- Trụ trì: {trụ trì}
-- Điện thoại: {điện thoại}
-
-**Các vị tu trong chùa**
-1. {Họ và tên} ({Pháp danh}), {Giáo phẩm/Giới phẩm}, {Chức việc}, sinh {năm sinh}
-
-**Tải tài liệu**: [Tải file gốc]({link tải})
-
----
-
-Quy tắc BẮT BUỘC:
-- Tên tự viện PHẢI là heading "### {số}." (3 dấu #), TUYỆT ĐỐI không viết thành mục trong
-  danh sách số — nếu không, khi 2 tự viện trùng tên hoặc danh sách chức sắc dài, trình
-  duyệt sẽ nối nhầm số thứ tự tự viện tiếp theo vào cuối danh sách chức sắc trước đó
-  (ví dụ chùa thứ 2 hiện thành mục "7." thay vì heading riêng).
-- Danh sách "Các vị tu trong chùa" LUÔN bắt đầu lại từ 1 cho mỗi tự viện, độc lập hoàn
-  toàn với số thứ tự tự viện.
-- Đặt "---" giữa các tự viện để tách rõ ràng khi có nhiều hơn 1 tự viện.
-- Liệt kê ĐẦY ĐỦ tất cả các vị có trong dữ liệu, không rút gọn hay tóm tắt bớt.
-- Field nào không có dữ liệu thì bỏ qua field đó, không ghi "không có" hay để trống.
-- Nếu tự viện không có link tải, bỏ qua dòng "Tải tài liệu".
-- Không thêm lời chào, giải thích, hay bình luận ngoài định dạng trên.
-PROMPT;
-
+    /**
+     * Định dạng thuần PHP (không qua AI) — dữ liệu đã được TempleSearchService lọc
+     * chính xác sẵn, AI chỉ từng dùng để đổ dữ liệu vào 1 khuôn markdown CỐ ĐỊNH bất
+     * kể câu hỏi là gì, nên chuyển hẳn sang PHP: nhanh hơn, không tốn phí gọi AI, và
+     * loại bỏ hẳn rủi ro AI không tuân đúng định dạng (từng gặp bug tên tự viện dính
+     * vào danh sách chức sắc trước đó do AI tự ý đổi cấu trúc).
+     *
+     * Nhiều hơn 1 tự viện khớp (câu hỏi chưa đủ cụ thể, vd tên chùa trùng ở nhiều
+     * tỉnh) → chỉ hiện danh sách gọn (tên chùa + tỉnh + trụ trì) để người dùng gõ rõ
+     * hơn. Chỉ khi còn ĐÚNG 1 tự viện mới hiện đầy đủ chi tiết + chức sắc + link tải.
+     */
     public function ask(string $question, Collection $temples): string
     {
         if ($temples->isEmpty()) {
-            return 'Không tìm thấy tự viện nào khớp với câu hỏi của bạn. Thử lại với tên chùa, địa chỉ, tên trụ trì hoặc số điện thoại.';
+            return 'Không tìm thấy tự viện nào khớp với câu hỏi của bạn. Thử lại với tên chùa, tên trụ trì, số điện thoại hoặc địa chỉ.';
         }
 
-        $context = $temples->map(function ($temple) {
-            $monastics = $temple->monastics->map(
-                fn ($m) => "  - {$m->full_name}".($m->religious_name ? " ({$m->religious_name})" : '')
+        if ($temples->count() > 1) {
+            return $this->formatList($temples);
+        }
+
+        return $this->formatDetail($temples->first());
+    }
+
+    private function formatList(Collection $temples): string
+    {
+        $lines = $temples->values()->map(function (Temple $temple, int $index) {
+            $number = $index + 1;
+            $province = $temple->province?->name;
+
+            $line = "{$number}. **{$temple->name}**".($province ? " ({$province})" : '');
+
+            if (filled($temple->head_monk)) {
+                $line .= " — Trụ trì: {$temple->head_monk}";
+            }
+
+            return $line;
+        });
+
+        return "Tìm thấy {$temples->count()} tự viện phù hợp:\n\n"
+            .$lines->implode("\n")
+            ."\n\nBạn gõ rõ hơn tên tự viện (kèm tên tỉnh/thành nếu trùng tên ở nhiều nơi) để xem chi tiết đầy đủ.";
+    }
+
+    private function formatDetail(Temple $temple): string
+    {
+        $province = $temple->province?->name;
+
+        $lines = [];
+        $lines[] = "### {$temple->name}".($province ? " ({$province})" : '');
+        $lines[] = "- Mã tự viện: {$temple->code}";
+
+        if (filled($temple->address)) {
+            $lines[] = "- Địa chỉ: {$temple->address}";
+        }
+
+        if (filled($temple->head_monk)) {
+            $lines[] = "- Trụ trì: {$temple->head_monk}";
+        }
+
+        if (filled($temple->phone)) {
+            $lines[] = "- Điện thoại: {$temple->phone}";
+        }
+
+        if ($temple->monastics->isNotEmpty()) {
+            $lines[] = '';
+            $lines[] = '**Các vị tu trong chùa**';
+
+            array_push($lines, ...$temple->monastics->values()->map(
+                fn (Monastic $m, int $i) => ($i + 1).'. '.$m->full_name
+                    .($m->religious_name ? " ({$m->religious_name})" : '')
                     .($m->rank ? ", {$m->rank}" : '')
                     .($m->position ? ", {$m->position}" : '')
                     .($m->birth_year ? ", sinh {$m->birth_year}" : '')
-            )->implode("\n");
+            )->all());
+        }
 
-            $downloadUrl = $temple->latestDocument?->download_url;
+        $downloadUrl = $temple->latestDocument?->download_url;
 
-            return <<<TXT
-Mã tự viện: {$temple->code}
-Tên: {$temple->name}
-Tỉnh/thành: {$temple->province?->name}
-Địa chỉ: {$temple->address}
-Trụ trì: {$temple->head_monk}
-Điện thoại: {$temple->phone}
-Link tải file gốc: {$downloadUrl}
-Danh sách chức sắc:
-{$monastics}
-TXT;
-        })->implode("\n\n---\n\n");
+        if ($downloadUrl) {
+            $lines[] = '';
+            $lines[] = "**Tải tài liệu**: [Tải file gốc]({$downloadUrl})";
+        }
 
-        $response = OpenAI::chat()->create([
-            'model'       => 'gpt-4o-mini',
-            'temperature' => 0,
-            // Tự viện lớn có thể tới 50-60 chức sắc, phải liệt kê đầy đủ từng vị
-            // theo yêu cầu định dạng — 800 token cũ không đủ cho trường hợp này.
-            'max_tokens'  => 4000,
-            'messages'    => [
-                ['role' => 'system', 'content' => self::SYSTEM_PROMPT],
-                ['role' => 'user', 'content' => "Dữ liệu tự viện tìm được:\n\n{$context}\n\nCâu hỏi: {$question}"],
-            ],
-        ]);
-
-        return trim($response->choices[0]->message->content ?? 'Không nhận được câu trả lời từ AI.');
+        return implode("\n", $lines);
     }
 }
