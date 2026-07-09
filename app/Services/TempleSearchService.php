@@ -129,9 +129,44 @@ class TempleSearchService
             ->get()
             ->filter(fn (Temple $t) => collect($attributes)->contains(
                 fn (string $attr) => $this->containsExact($t->{$attr}, $query)
-            ))
+            ) || $this->containsSplitAcrossFields($t, $query))
             ->take($limit)
             ->values();
+    }
+
+    /**
+     * Câu hỏi có thể ghép tên tự viện + tên trụ trì để lọc khi 2 tự viện trùng tên
+     * (vd "chùa phật quang thích minh nhẫn" — 2 chùa cùng tên "Phật Quang" ở An Giang,
+     * khác trụ trì) — mỗi phần nằm ở field riêng nên containsExact() (đòi khớp nguyên
+     * cụm trong 1 field) sẽ không tìm ra. Thử tách câu hỏi tại MỌI vị trí giữa các từ,
+     * kiểm tra xem có cách tách nào mà 1 phần khớp "name", phần còn lại khớp
+     * "head_monk" hay không (thử cả 2 chiều).
+     *
+     * Bắt buộc CẢ 2 phần đều phải có từ 2 từ trở lên — nếu không, 1 từ chung chung như
+     * "chùa" (có ở hầu hết tên tự viện) một mình cũng đủ "khớp" rồi ghép bừa với phần
+     * còn lại thành dương tính giả (đã gặp thật: "chùa từ đàm" suýt khớp nhầm "CHÙA
+     * PHÁP HOA" + trụ trì "Thích Từ Đàm" một khi cho phép tách rời từng từ).
+     */
+    private function containsSplitAcrossFields(Temple $temple, string $query): bool
+    {
+        $words = array_values(array_filter(preg_split('/\s+/u', $query) ?: []));
+        $count = count($words);
+
+        if ($count < 4) {
+            return false;
+        }
+
+        for ($i = 2; $i <= $count - 2; $i++) {
+            $left = implode(' ', array_slice($words, 0, $i));
+            $right = implode(' ', array_slice($words, $i));
+
+            if (($this->containsExact($temple->name, $left) && $this->containsExact($temple->head_monk, $right))
+                || ($this->containsExact($temple->head_monk, $left) && $this->containsExact($temple->name, $right))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
