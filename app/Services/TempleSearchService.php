@@ -24,10 +24,29 @@ class TempleSearchService
         }
 
         try {
-            return Temple::search($query)
+            // Tìm 2 tầng: trước hết CHỈ khớp trên tên tự viện + tên trụ trì (độ chính
+            // xác cao). Field "monastics" gộp chung tên của CẢ CHỤC chức sắc trong 1
+            // tự viện — nếu tìm luôn cả field này ngay từ đầu, 1 tự viện có nhiều chức
+            // sắc cùng họ/pháp danh gần giống câu hỏi (vd nhiều vị cùng bắt đầu "Thích
+            // Lệ...") sẽ cộng dồn điểm khớp và lấn át đúng kết quả cần tìm (vd hỏi tên
+            // trụ trì cụ thể nhưng ra tự viện khác có DANH SÁCH chức sắc trùng vài từ).
+            // Chỉ mở rộng tìm cả monastics/địa chỉ khi tầng 1 không đủ kết quả.
+            $primary = Temple::search($query)
+                ->options(['attributesToSearchOn' => ['head_monk', 'name']])
                 ->query(fn ($builder) => $builder->with(['province', 'monastics', 'latestDocument']))
                 ->take($limit)
                 ->get();
+
+            if ($primary->count() >= $limit) {
+                return $primary;
+            }
+
+            $fallback = Temple::search($query)
+                ->query(fn ($builder) => $builder->with(['province', 'monastics', 'latestDocument']))
+                ->take($limit)
+                ->get();
+
+            return $primary->concat($fallback)->unique('id')->take($limit)->values();
         } catch (ApiException $e) {
             // Index chỉ được Meilisearch tự tạo khi có tự viện đầu tiên được lưu —
             // DB rỗng (mới cài, hoặc chưa import gì) thì index chưa tồn tại, coi
