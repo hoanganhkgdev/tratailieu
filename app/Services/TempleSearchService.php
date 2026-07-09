@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Province;
 use App\Models\Temple;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Meilisearch\Exceptions\ApiException;
 
@@ -61,6 +62,18 @@ class TempleSearchService
         }
 
         try {
+            // Người dùng copy nguyên 1 dòng trong danh sách gợi ý (định dạng "Tên chùa
+            // (Tỉnh) — Trụ trì: X" — xem TempleChatService::formatList()) dán lại để
+            // xem chi tiết ngay. Nhận diện đúng định dạng này trước, parse ra 3 phần
+            // rồi tra CHÍNH XÁC theo cả 3 (không qua Meilisearch/suy đoán) — đáng tin
+            // hơn hẳn vì đây là dữ liệu do chính hệ thống tạo ra, không phải câu hỏi
+            // tự do của người dùng.
+            $fromListLine = $this->searchFromListLine($query, $limit);
+
+            if ($fromListLine !== null) {
+                return $fromListLine;
+            }
+
             [$coreQuery, $province] = $this->extractTrailingProvince($query);
 
             $exact = $this->searchAndVerify($coreQuery, ['head_monk', 'name'], $province, $limit);
@@ -102,6 +115,42 @@ class TempleSearchService
 
             throw $e;
         }
+    }
+
+    /**
+     * Parse dòng dạng "Tên chùa (Tỉnh) — Trụ trì: X" (chấp nhận cả bản markdown thô
+     * "**Tên chùa**" nếu người dùng copy nguyên) — không khớp định dạng thì trả về
+     * null để search() tiếp tục theo luồng tìm kiếm tự do bình thường.
+     */
+    private function searchFromListLine(string $query, int $limit): ?Collection
+    {
+        $clean = str_replace('**', '', $query);
+
+        if (! preg_match('/^(.+?)\s*\(([^)]+)\)\s*[—-]\s*Trụ trì:\s*(.+)$/u', $clean, $m)) {
+            return null;
+        }
+
+        [, $name, $provinceName, $headMonk] = array_map('trim', $m);
+        $province = Province::findByNameOrAlias($provinceName);
+        $isMysql = DB::getDriverName() === 'mysql';
+
+        $matches = Temple::query()
+            ->when($province, fn ($q) => $q->where('province_id', $province->id))
+            ->where(function ($q) use ($name, $isMysql) {
+                $isMysql
+                    ? $q->whereRaw('name COLLATE utf8mb4_0900_as_ci LIKE ?', ['%'.$name.'%'])
+                    : $q->where('name', 'LIKE', '%'.$name.'%');
+            })
+            ->where(function ($q) use ($headMonk, $isMysql) {
+                $isMysql
+                    ? $q->whereRaw('head_monk COLLATE utf8mb4_0900_as_ci LIKE ?', ['%'.$headMonk.'%'])
+                    : $q->where('head_monk', 'LIKE', '%'.$headMonk.'%');
+            })
+            ->with(['province', 'monastics', 'latestDocument'])
+            ->take($limit)
+            ->get();
+
+        return $matches->isNotEmpty() ? $matches->values() : null;
     }
 
     /**
