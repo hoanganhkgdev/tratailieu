@@ -96,9 +96,21 @@
                         </div>
                     @endif
                 @empty
-                    <div class="mt-16 flex flex-col items-center gap-2 text-center">
-                        <p class="text-lg font-medium text-stone-800">Hỏi gì về tự viện cũng được</p>
-                        <p class="text-sm text-stone-500">Ví dụ: "Chùa An Lạc ở đâu?", "Trụ trì chùa Bửu Sơn là ai?", "SĐT chùa mã 0004?"</p>
+                    <div class="mt-10 flex flex-col items-center gap-4 text-center">
+                        <div>
+                            <p class="text-lg font-medium text-stone-800">Hỏi gì về tự viện cũng được</p>
+                            <p class="mt-1 text-sm text-stone-500">Ví dụ: "Chùa An Lạc ở đâu?", "Trụ trì chùa Bửu Sơn là ai?", "SĐT chùa mã 0004?"</p>
+                        </div>
+
+                        <div class="w-full max-w-md rounded-2xl border border-stone-200 bg-stone-50 p-4 text-left text-sm text-stone-600">
+                            <p class="font-medium text-stone-800">Cách tìm hiệu quả</p>
+                            <ul class="mt-2 list-disc space-y-1.5 pl-4">
+                                <li>Tìm được theo: <strong>tên chùa</strong>, <strong>tên trụ trì</strong>, <strong>số điện thoại</strong>, hoặc <strong>địa chỉ</strong>.</li>
+                                <li>Cần gõ tương đối chính xác (đúng dấu tiếng Việt) — không đoán ý gần giống.</li>
+                                <li>Tên chùa trùng ở nhiều tỉnh? Gõ kèm <strong>tên tỉnh</strong> hoặc <strong>tên trụ trì</strong> để lọc, ví dụ "chùa phật quang an giang".</li>
+                                <li>Nhiều chùa khớp sẽ hiện danh sách gọn trước — gõ rõ hơn để xem chi tiết đầy đủ.</li>
+                            </ul>
+                        </div>
                     </div>
                 @endforelse
 
