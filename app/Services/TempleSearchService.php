@@ -10,19 +10,12 @@ use Meilisearch\Exceptions\ApiException;
 class TempleSearchService
 {
     /**
-     * Điểm liên quan tối thiểu (thang 0-1 của Meilisearch) để 1 kết quả được coi là
-     * "khớp thật" ở tầng tìm chính xác (tên tự viện / tên trụ trì). Hiệu chỉnh bằng
-     * dữ liệu thật: khớp đúng luôn ra 0.95-1.0, khớp mờ do typo-tolerance (vd "Trang"
-     * tự sửa nhầm thành "Quang"/"Trung") chỉ ra 0.44-0.77 — 0.8 tách rõ 2 nhóm này.
+     * Số ứng viên lấy từ Meilisearch trước khi tự lọc lại bằng mb_stripos — phải lớn
+     * hơn hẳn $limit vì bộ tách từ của Meilisearch tự chuẩn hoá dấu tiếng Việt (xem
+     * containsExact()), nên trong nhóm ứng viên Meilisearch trả về, kết quả ĐÚNG có
+     * thể xếp hạng thấp hơn nhiều kết quả "khớp mờ" khác — cần đủ dư để không bỏ sót.
      */
-    private const EXACT_TIER_THRESHOLD = 0.8;
-
-    /**
-     * Ngưỡng cho tầng 2 (số điện thoại / địa chỉ) — thấp hơn tầng 1 vì đo thực tế:
-     * khớp đúng số điện thoại/địa chỉ ra 0.66-0.86, khớp mờ do typo-tolerance của câu
-     * KHÔNG tồn tại (như tên người không có thật) chỉ ra ~0.3.
-     */
-    private const FALLBACK_TIER_THRESHOLD = 0.5;
+    private const CANDIDATE_POOL_SIZE = 30;
 
     /**
      * Chỉ khớp trên 4 field: tên tự viện, tên trụ trì, số điện thoại trụ trì, địa chỉ
@@ -36,18 +29,21 @@ class TempleSearchService
      * trụ trì cụ thể luôn mong đợi hoặc ra đúng người đó, hoặc báo không tìm thấy,
      * chứ không muốn thấy danh sách "gần giống" không liên quan.
      *
-     * Tầng 1 — tên tự viện / tên trụ trì: bắt buộc khớp ĐỦ mọi từ trong câu hỏi
-     * (matchingStrategy=all, mặc định chỉ cần khớp 1 phần) + ngưỡng điểm cao, chỉ tìm
-     * trên 2 field này để không bị các field khác làm nhiễu điểm.
+     * KHÔNG dùng rankingScoreThreshold của Meilisearch để lọc độ liên quan — đã thử
+     * và phát hiện bộ tách từ Charabia tự chuẩn hoá dấu tiếng Việt ở tầng token hoá
+     * (độc lập với typoTolerance, đã tắt thử không đổi kết quả), khiến 2 tên khác
+     * nghĩa hoàn toàn như "Nhân"/"Nhẫn" được chấm điểm NGANG NHAU hoặc kết quả SAI lại
+     * còn cao hơn kết quả ĐÚNG (vd "Nhân" ra 1.0 trong khi 3 chùa có đúng "Nhẫn" chỉ ra
+     * 0.333) — threshold sẽ vô tình loại mất kết quả đúng trước khi kịp xác minh lại.
+     * Thay vào đó: lấy dư CANDIDATE_POOL_SIZE ứng viên (chỉ cần matchingStrategy=all
+     * để đủ mọi từ có mặt), rồi tự xác minh lại bằng mb_stripos (PHP, phân biệt dấu
+     * chuẩn) — chỉ giữ những kết quả field thực sự CHỨA đúng chuỗi đã gõ.
+     *
+     * Tầng 1 — tên tự viện / tên trụ trì: chỉ tìm trên 2 field này để không bị các
+     * field khác làm nhiễu.
      *
      * Tầng 2 — phương án cuối cho số điện thoại/địa chỉ/câu hỏi không tìm đích danh 1
-     * chùa: vẫn bắt buộc khớp đủ mọi từ, nhưng ngưỡng thấp hơn tầng 1 vì các field này
-     * đa dạng độ dài hơn.
-     *
-     * Cả 2 tầng đều lọc xác minh lại bằng mb_stripos (PHP, phân biệt dấu chuẩn) sau
-     * khi có kết quả từ Meilisearch — bộ tách từ Charabia của Meilisearch tự chuẩn
-     * hoá dấu tiếng Việt ở tầng token hoá (độc lập với typoTolerance), khiến 2 tên
-     * khác nghĩa hoàn toàn như "Nhân" và "Nhẫn" có thể bị tính là khớp tuyệt đối.
+     * chùa: mở rộng tìm cả 4 field.
      */
     public function search(string $query, int $limit = 5): Collection
     {
@@ -58,36 +54,13 @@ class TempleSearchService
         }
 
         try {
-            $exact = Temple::search($query)
-                ->options([
-                    'attributesToSearchOn'  => ['head_monk', 'name'],
-                    'matchingStrategy'      => 'all',
-                    'rankingScoreThreshold' => self::EXACT_TIER_THRESHOLD,
-                ])
-                ->query(fn ($builder) => $builder->with(['province', 'monastics', 'latestDocument']))
-                ->take($limit)
-                ->get()
-                ->filter(fn (Temple $t) => $this->containsExact($t->head_monk, $query) || $this->containsExact($t->name, $query))
-                ->values();
+            $exact = $this->searchAndVerify($query, ['head_monk', 'name'], $limit);
 
             if ($exact->isNotEmpty()) {
                 return $exact;
             }
 
-            return Temple::search($query)
-                ->options([
-                    'attributesToSearchOn'  => self::SEARCHABLE_ATTRIBUTES,
-                    'matchingStrategy'      => 'all',
-                    'rankingScoreThreshold' => self::FALLBACK_TIER_THRESHOLD,
-                ])
-                ->query(fn ($builder) => $builder->with(['province', 'monastics', 'latestDocument']))
-                ->take($limit)
-                ->get()
-                ->filter(fn (Temple $t) => $this->containsExact($t->head_monk, $query)
-                    || $this->containsExact($t->name, $query)
-                    || $this->containsExact($t->phone, $query)
-                    || $this->containsExact($t->address, $query))
-                ->values();
+            return $this->searchAndVerify($query, self::SEARCHABLE_ATTRIBUTES, $limit);
         } catch (ApiException $e) {
             // Index chỉ được Meilisearch tự tạo khi có tự viện đầu tiên được lưu —
             // DB rỗng (mới cài, hoặc chưa import gì) thì index chưa tồn tại, coi
@@ -100,6 +73,26 @@ class TempleSearchService
 
             throw $e;
         }
+    }
+
+    /**
+     * @param  array<int, string>  $attributes
+     */
+    private function searchAndVerify(string $query, array $attributes, int $limit): Collection
+    {
+        return Temple::search($query)
+            ->options([
+                'attributesToSearchOn' => $attributes,
+                'matchingStrategy'     => 'all',
+            ])
+            ->query(fn ($builder) => $builder->with(['province', 'monastics', 'latestDocument']))
+            ->take(self::CANDIDATE_POOL_SIZE)
+            ->get()
+            ->filter(fn (Temple $t) => collect($attributes)->contains(
+                fn (string $attr) => $this->containsExact($t->{$attr}, $query)
+            ))
+            ->take($limit)
+            ->values();
     }
 
     private function containsExact(?string $haystack, string $needle): bool
