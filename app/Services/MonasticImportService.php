@@ -130,6 +130,23 @@ class MonasticImportService
     private function findTemple(Province $province, string $templeName): ?Temple
     {
         $isMysql = DB::getDriverName() === 'mysql';
+        $templeName = trim($templeName);
+
+        // Thử khớp CHÍNH XÁC trước (bỏ qua hoa/thường, phân biệt dấu chuẩn) — nếu
+        // không, "Chùa Phật Quang" sẽ khớp LIKE vào cả "CHÙA PHẬT QUANG PHỔ CHIẾU"
+        // hay "CHÙA PHẬT QUANG CHÁNH GIÁC" (tên khác, chỉ trùng 1 đoạn) và lấy nhầm
+        // record đầu tiên tìm được thay vì đúng chùa cùng tên tuyệt đối.
+        $exact = Temple::where('province_id', $province->id)
+            ->where(function ($q) use ($templeName, $isMysql) {
+                $isMysql
+                    ? $q->whereRaw('name COLLATE utf8mb4_0900_as_ci = ?', [$templeName])
+                    : $q->where('name', $templeName);
+            })
+            ->first();
+
+        if ($exact) {
+            return $exact;
+        }
 
         return Temple::where('province_id', $province->id)
             ->where(function ($q) use ($templeName, $isMysql) {
