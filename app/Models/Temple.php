@@ -55,6 +55,16 @@ class Temple extends Model
         return $this->hasMany(Monastic::class);
     }
 
+    /**
+     * Hồ sơ cá nhân đầy đủ (phiếu số 3) của tăng ni thuộc tự viện này — khác với
+     * monastics() (danh sách rút gọn trích từ hồ sơ CHÙA), đây là dữ liệu trích từ
+     * hồ sơ RIÊNG của từng người, đối chiếu qua "nơi hành đạo/nơi ở hiện tại".
+     */
+    public function monasticProfiles(): HasMany
+    {
+        return $this->hasMany(MonasticProfile::class);
+    }
+
     public function latestDocument(): BelongsTo
     {
         return $this->belongsTo(Document::class, 'latest_document_id');
