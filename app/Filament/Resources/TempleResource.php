@@ -19,6 +19,10 @@ class TempleResource extends Resource
 
     protected static ?string $navigationLabel = 'Tự viện';
 
+    protected static ?string $navigationGroup = 'Tự viện';
+
+    protected static ?int $navigationSort = 2;
+
     protected static ?string $modelLabel = 'tự viện';
 
     protected static ?string $pluralModelLabel = 'Tự viện';

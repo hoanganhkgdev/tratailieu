@@ -22,6 +22,10 @@ class ImportMonastics extends Page implements HasForms
 
     protected static ?string $navigationLabel = 'Nhập hồ sơ tăng ni';
 
+    protected static ?string $navigationGroup = 'Tăng ni';
+
+    protected static ?int $navigationSort = 0;
+
     protected static ?string $title = 'Nhập hồ sơ tăng ni';
 
     protected static string $view = 'filament.pages.import-monastics';

@@ -25,6 +25,8 @@ class DocumentResource extends Resource
 
     protected static ?string $navigationLabel = 'Tiến trình xử lý';
 
+    protected static ?string $navigationGroup = 'Tự viện';
+
     protected static ?string $modelLabel = 'tài liệu';
 
     protected static ?string $pluralModelLabel = 'Tài liệu';

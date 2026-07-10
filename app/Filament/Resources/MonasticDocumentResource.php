@@ -20,7 +20,11 @@ class MonasticDocumentResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-arrow-path';
 
-    protected static ?string $navigationLabel = 'Tiến trình xử lý tăng ni';
+    protected static ?string $navigationLabel = 'Tiến trình xử lý';
+
+    protected static ?string $navigationGroup = 'Tăng ni';
+
+    protected static ?int $navigationSort = 1;
 
     protected static ?string $modelLabel = 'tài liệu';
 

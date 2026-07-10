@@ -25,6 +25,10 @@ class ImportTemples extends Page implements HasForms
 
     protected static ?string $navigationLabel = 'Nhập hồ sơ tự viện';
 
+    protected static ?string $navigationGroup = 'Tự viện';
+
+    protected static ?int $navigationSort = 0;
+
     protected static ?string $title = 'Nhập hồ sơ tự viện';
 
     protected static string $view = 'filament.pages.import-temples';
