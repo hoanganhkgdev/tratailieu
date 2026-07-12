@@ -8,6 +8,9 @@ use Smalot\PdfParser\Parser as PdfParser;
 
 class DocumentParserService
 {
+    private const GEMINI_SUPPORTED_IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/heic', 'image/heif', 'image/webp'];
+
+
     public function extractText(string $filePath, string $fileType): string
     {
         // R2 (driver s3) không có filesystem local nên path() không dùng được —
@@ -140,7 +143,7 @@ class DocumentParserService
                 }
 
                 if ($best !== null) {
-                    $images[] = ['data' => $best['data'], 'mime' => $best['mime']];
+                    $images[] = $this->ensureGeminiSupportedImage($best['data'], $best['mime']);
                 }
             }
 
@@ -148,6 +151,28 @@ class DocumentParserService
         } finally {
             @unlink($tmpPath);
         }
+    }
+
+    /**
+     * Gemini chỉ nhận PNG/JPEG/HEIC/HEIF/WEBP — PDF scan cũ đôi khi nhúng ảnh trang
+     * bằng JPEG2000 (image/jp2, GD hoàn toàn không đọc được định dạng này) — đã kiểm
+     * chứng thực tế: toàn bộ PDF scan tỉnh Cà Mau dùng jp2, làm crash thẳng ở bước
+     * dựng request (không phải lỗi AI, retry cũng không tự khỏi). Convert bằng
+     * Imagick (có hỗ trợ OpenJPEG) sang JPEG trước khi gửi.
+     */
+    private function ensureGeminiSupportedImage(string $data, string $mime): array
+    {
+        if (in_array($mime, self::GEMINI_SUPPORTED_IMAGE_MIMES, true)) {
+            return ['data' => $data, 'mime' => $mime];
+        }
+
+        $imagick = new \Imagick();
+        $imagick->readImageBlob($data);
+        $imagick->setImageFormat('jpeg');
+        $converted = $imagick->getImageBlob();
+        $imagick->destroy();
+
+        return ['data' => $converted, 'mime' => 'image/jpeg'];
     }
 
     private function extractFromDocx(string $absolutePath): string
