@@ -10,6 +10,13 @@ class DocumentParserService
 {
     private const GEMINI_SUPPORTED_IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/heic', 'image/heif', 'image/webp'];
 
+    /**
+     * Cạnh dài tối đa gửi cho Gemini — ảnh scan gốc thường 1600-2500px, thừa độ phân
+     * giải so với nhu cầu đọc chữ (Gemini tính tiền theo số "tile" cắt từ ảnh, ảnh
+     * càng lớn càng nhiều tile càng tốn token).
+     */
+    private const MAX_IMAGE_DIMENSION = 1600;
+
 
     public function extractText(string $filePath, string $fileType): string
     {
@@ -154,21 +161,37 @@ class DocumentParserService
     }
 
     /**
-     * Gemini chỉ nhận PNG/JPEG/HEIC/HEIF/WEBP — PDF scan cũ đôi khi nhúng ảnh trang
-     * bằng JPEG2000 (image/jp2, GD hoàn toàn không đọc được định dạng này) — đã kiểm
-     * chứng thực tế: toàn bộ PDF scan tỉnh Cà Mau dùng jp2, làm crash thẳng ở bước
-     * dựng request (không phải lỗi AI, retry cũng không tự khỏi). Convert bằng
-     * Imagick (có hỗ trợ OpenJPEG) sang JPEG trước khi gửi.
+     * 2 việc gộp chung 1 bước (đều cần Imagick nên xử lý 1 lần cho gọn, tránh decode
+     * lại ảnh 2 lượt):
+     *
+     * 1. Convert định dạng — Gemini chỉ nhận PNG/JPEG/HEIC/HEIF/WEBP, PDF scan cũ đôi
+     *    khi nhúng ảnh trang bằng JPEG2000 (image/jp2, GD hoàn toàn không đọc được
+     *    định dạng này) — đã kiểm chứng thực tế: toàn bộ PDF scan tỉnh Cà Mau dùng
+     *    jp2, làm crash thẳng ở bước dựng request (không phải lỗi AI, retry cũng
+     *    không tự khỏi).
+     * 2. Giảm kích thước nếu vượt MAX_IMAGE_DIMENSION — xem hằng số đó để hiểu lý do.
      */
     private function ensureGeminiSupportedImage(string $data, string $mime): array
     {
-        if (in_array($mime, self::GEMINI_SUPPORTED_IMAGE_MIMES, true)) {
+        $needsFormatConvert = ! in_array($mime, self::GEMINI_SUPPORTED_IMAGE_MIMES, true);
+        $info = @getimagesizefromstring($data);
+        $needsResize = $info && max($info[0], $info[1]) > self::MAX_IMAGE_DIMENSION;
+
+        if (! $needsFormatConvert && ! $needsResize) {
             return ['data' => $data, 'mime' => $mime];
         }
 
         $imagick = new \Imagick();
         $imagick->readImageBlob($data);
+
+        if ($needsResize) {
+            // bestFit=true tự giữ tỉ lệ khung hình, chỉ co lại chứ không phóng to ảnh
+            // vốn đã nhỏ hơn ngưỡng.
+            $imagick->resizeImage(self::MAX_IMAGE_DIMENSION, self::MAX_IMAGE_DIMENSION, \Imagick::FILTER_LANCZOS, 1, true);
+        }
+
         $imagick->setImageFormat('jpeg');
+        $imagick->setImageCompressionQuality(85);
         $converted = $imagick->getImageBlob();
         $imagick->destroy();
 

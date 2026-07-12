@@ -38,9 +38,13 @@ class MonasticImportService
      * Gemini thỉnh thoảng trả JSON bị cắt cụt giữa chừng dù finishReason báo "STOP"
      * (không phải do chạm giới hạn maxOutputTokens — đã kiểm chứng thực tế: cùng 1
      * ảnh, gọi lại nhiều lần, có lần JSON hợp lệ có lần cụt ở cùng vị trí ngẫu nhiên,
-     * ~1/3 số lần). Thử lại vài lần thay vì để cả hồ sơ rơi vào "failed" oan.
+     * ~1/3 số lần). Thử lại vài lần thay vì để cả hồ sơ rơi vào "failed" oan — chỉ 2
+     * (không phải 3) vì mỗi lần thử lại với ảnh là gửi lại NGUYÊN ảnh, tốn tiền y hệt
+     * lần đầu; 2 lần đã đủ vớt được phần lớn trường hợp mà không đội chi phí quá cao
+     * cho vài file xui liên tiếp — những file vẫn fail sau 2 lần thì retry thủ công
+     * sau (xem trang quản lý tài liệu) thay vì tự động đốt tiền thêm lần 3.
      */
-    private const MAX_JSON_RETRIES = 3;
+    private const MAX_JSON_RETRIES = 2;
 
     public function process(MonasticDocument $document): void
     {
