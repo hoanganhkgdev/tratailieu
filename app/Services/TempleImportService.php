@@ -6,20 +6,22 @@ use App\Models\Document;
 use App\Models\Monastic;
 use App\Models\Province;
 use App\Models\Temple;
+use Gemini\Data\GenerationConfig;
+use Gemini\Data\ThinkingConfig;
+use Gemini\Enums\ResponseMimeType;
+use Gemini\Laravel\Facades\Gemini;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use OpenAI\Laravel\Facades\OpenAI;
 
 class TempleImportService
 {
     /**
-     * Giá gpt-4o-mini, đơn vị USD trên mỗi 1 token (không phải 1M) — nhân trực tiếp
-     * với số token trả về từ OpenAI để ra chi phí thực từng lần gọi.
+     * Giá gemini-flash-latest, ước tính theo bảng giá công khai Gemini Flash.
      */
-    private const INPUT_COST_PER_TOKEN = 0.15 / 1_000_000;
+    private const INPUT_COST_PER_TOKEN = 0.30 / 1_000_000;
 
-    private const OUTPUT_COST_PER_TOKEN = 0.60 / 1_000_000;
+    private const OUTPUT_COST_PER_TOKEN = 2.50 / 1_000_000;
 
     public function __construct(private DocumentParserService $parser) {}
 
@@ -290,41 +292,40 @@ PROMPT;
 
     private function analyze(Document $document, string $text): array
     {
-        // Có tự viện thật lên tới 36+ chức sắc (bị OpenAI cắt giữa dòng khi giới
-        // hạn cũ 2500 token — một số chùa Khmer cộng đồng lớn hơn hẳn phần còn
-        // lại của dữ liệu mẫu). Nới rộng cả input/output để không cắt mất dữ liệu
-        // thật của các tự viện lớn.
+        // Có tự viện thật lên tới 36+ chức sắc (bị cắt giữa dòng khi giới hạn cũ 2500
+        // token — một số chùa Khmer cộng đồng lớn hơn hẳn phần còn lại của dữ liệu
+        // mẫu). Nới rộng cả input/output để không cắt mất dữ liệu thật của các tự
+        // viện lớn.
         $excerpt = Str::limit($text, 12000);
 
-        $response = OpenAI::chat()->create([
-            'model'           => 'gpt-4o-mini',
-            'response_format' => ['type' => 'json_object'],
-            'temperature'     => 0,
-            // ~36 người đã tốn ~2500 token và vẫn bị cắt — nâng lên 12000 để chịu
-            // được tự viện vài trăm người mà chi phí vẫn không đáng kể ($0.60/1M).
-            'max_tokens'      => 12000,
-            'messages'        => [
-                ['role' => 'user', 'content' => self::INSTRUCTIONS."\n\n".$excerpt],
-            ],
-        ]);
+        $response = Gemini::generativeModel(model: 'gemini-flash-latest')
+            ->withGenerationConfig(new GenerationConfig(
+                maxOutputTokens: 12000,
+                temperature: 0,
+                responseMimeType: ResponseMimeType::APPLICATION_JSON,
+                // BẮT BUỘC — nếu không set, model tự bật "thinking" ngầm và bị tính phí
+                // token ẩn dù không cần (đã kiểm chứng thực tế, xem MonasticImportService).
+                thinkingConfig: new ThinkingConfig(includeThoughts: false, thinkingBudget: 0),
+            ))
+            ->generateContent(self::INSTRUCTIONS."\n\n".$excerpt);
 
-        $usage = $response->usage;
+        $usage = $response->usageMetadata;
 
         $document->update([
-            'ai_input_tokens'  => $usage->promptTokens,
-            'ai_output_tokens' => $usage->completionTokens,
-            'ai_cost_usd'      => ($usage->promptTokens * self::INPUT_COST_PER_TOKEN)
-                + ($usage->completionTokens * self::OUTPUT_COST_PER_TOKEN),
+            'ai_input_tokens'  => $usage->promptTokenCount,
+            'ai_output_tokens' => $usage->candidatesTokenCount,
+            'ai_cost_usd'      => ($usage->promptTokenCount * self::INPUT_COST_PER_TOKEN)
+                + ($usage->candidatesTokenCount * self::OUTPUT_COST_PER_TOKEN),
         ]);
 
-        if ($response->choices[0]->finishReason === 'length') {
+        if ($response->candidates[0]->finishReason?->value === 'MAX_TOKENS') {
             throw new \RuntimeException(
                 'AI bị cắt phản hồi giữa dòng vì tự viện có quá nhiều chức sắc (vượt giới hạn token). '.
-                'Cần tăng max_tokens trong TempleImportService hoặc xử lý tài liệu này riêng.'
+                'Cần tăng maxOutputTokens trong TempleImportService hoặc xử lý tài liệu này riêng.'
             );
         }
 
-        $raw = $response->choices[0]->message->content ?? '';
+        $raw = $response->text();
 
         // Văn bản trích xuất từ file gốc đôi khi lẫn ký tự điều khiển (control
         // character) hoặc byte không hợp lệ UTF-8 do lỗi encoding/định dạng cũ —

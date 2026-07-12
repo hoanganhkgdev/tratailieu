@@ -91,6 +91,65 @@ class DocumentParserService
         return $document->getText();
     }
 
+    /**
+     * Dùng khi PDF không có lớp text (file scan/chụp ảnh trang giấy — extractText()
+     * trả về rỗng) — lấy ảnh TRANG LỚN NHẤT của mỗi trang (loại bỏ logo/watermark
+     * nhỏ hay đi kèm) để gửi cho AI đọc trực tiếp bằng vision thay vì đọc text.
+     *
+     * @return array<int, array{data: string, mime: string}>
+     */
+    public function extractPageImages(string $filePath): array
+    {
+        $tmpPath = tempnam(sys_get_temp_dir(), 'monastic_scan_').'.pdf';
+        file_put_contents($tmpPath, Storage::disk('public')->get($filePath));
+
+        try {
+            $pdf = (new PdfParser())->parseFile($tmpPath);
+            $images = [];
+
+            foreach ($pdf->getPages() as $page) {
+                $seen = [];
+                $best = null;
+
+                foreach ($page->getXObjects() as $xobject) {
+                    // getXObjects() trả cùng 1 object dưới nhiều key khác nhau.
+                    $hash = spl_object_id($xobject);
+
+                    if (isset($seen[$hash]) || ! method_exists($xobject, 'getContent')) {
+                        continue;
+                    }
+
+                    $seen[$hash] = true;
+                    $data = $xobject->getContent();
+
+                    if (! $data) {
+                        continue;
+                    }
+
+                    $info = @getimagesizefromstring($data);
+
+                    if (! $info) {
+                        continue;
+                    }
+
+                    $area = $info[0] * $info[1];
+
+                    if ($best === null || $area > $best['area']) {
+                        $best = ['data' => $data, 'area' => $area, 'mime' => $info['mime']];
+                    }
+                }
+
+                if ($best !== null) {
+                    $images[] = ['data' => $best['data'], 'mime' => $best['mime']];
+                }
+            }
+
+            return $images;
+        } finally {
+            @unlink($tmpPath);
+        }
+    }
+
     private function extractFromDocx(string $absolutePath): string
     {
         $phpWord = WordIOFactory::load($absolutePath, 'Word2007');
