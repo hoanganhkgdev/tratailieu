@@ -507,6 +507,12 @@ PROMPT;
     }
 
     /**
+     * Ngoài JSON bị cắt cụt (RuntimeException từ parseGeminiResponse()), lúc traffic
+     * cao Gemini còn trả lỗi tạm thời "currently experiencing high demand" (ném
+     * Gemini\Exceptions\ErrorException, không phải RuntimeException) — bắt luôn
+     * \Throwable ở đây vì cả 2 loại lỗi đều đáng thử lại, chỉ giới hạn cứng
+     * MAX_JSON_RETRIES lần nên không sợ lặp vô hạn.
+     *
      * @param  callable(): mixed  $makeResponse
      */
     private function generateWithRetry(MonasticDocument $document, callable $makeResponse): array
@@ -516,8 +522,12 @@ PROMPT;
         for ($attempt = 1; $attempt <= self::MAX_JSON_RETRIES; $attempt++) {
             try {
                 return $this->parseGeminiResponse($document, $makeResponse());
-            } catch (\RuntimeException $e) {
+            } catch (\Throwable $e) {
                 $lastException = $e;
+
+                if ($attempt < self::MAX_JSON_RETRIES) {
+                    usleep(500_000 * $attempt);
+                }
             }
         }
 
