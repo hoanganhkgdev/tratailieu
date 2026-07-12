@@ -73,11 +73,11 @@
                 <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
             </button>
             <div class="min-w-0 flex-1">
-                <h1 class="truncate text-sm font-semibold text-stone-900">Tra cứu tự viện</h1>
-                <p class="truncate text-xs text-stone-500">Hỏi theo tên chùa, địa chỉ, trụ trì, số điện thoại...</p>
+                <h1 class="truncate text-sm font-semibold text-stone-900">Tra cứu tăng ni</h1>
+                <p class="truncate text-xs text-stone-500">Hỏi theo họ tên, pháp danh, số điện thoại, CCCD, tên chùa...</p>
             </div>
-            <a href="{{ route('tra-cuu-tang-ni') }}" class="shrink-0 rounded-lg border border-stone-300 px-3 py-1.5 text-xs font-medium text-stone-600 transition hover:bg-stone-100">
-                Tra cứu tăng ni
+            <a href="{{ route('tra-cuu') }}" class="shrink-0 rounded-lg border border-stone-300 px-3 py-1.5 text-xs font-medium text-stone-600 transition hover:bg-stone-100">
+                Tra cứu tự viện
             </a>
         </header>
 
@@ -101,17 +101,17 @@
                 @empty
                     <div class="mt-10 flex flex-col items-center gap-4 text-center">
                         <div>
-                            <p class="text-lg font-medium text-stone-800">Hỏi gì về tự viện cũng được</p>
-                            <p class="mt-1 text-sm text-stone-500">Ví dụ: "Chùa An Lạc ở đâu?", "Trụ trì chùa Bửu Sơn là ai?", "SĐT chùa mã 0004?"</p>
+                            <p class="text-lg font-medium text-stone-800">Hỏi gì về tăng ni cũng được</p>
+                            <p class="mt-1 text-sm text-stone-500">Ví dụ: "Thích Minh Nhẫn ở chùa nào?", "SĐT của Huỳnh Huệ Hưng?", "CCCD 091094018475"</p>
                         </div>
 
                         <div class="w-full max-w-md rounded-2xl border border-stone-200 bg-stone-50 p-4 text-left text-sm text-stone-600">
                             <p class="font-medium text-stone-800">Cách tìm hiệu quả</p>
                             <ul class="mt-2 list-disc space-y-1.5 pl-4">
-                                <li>Tìm được theo: <strong>tên chùa</strong>, <strong>tên trụ trì</strong>, <strong>số điện thoại</strong>, hoặc <strong>địa chỉ</strong>.</li>
+                                <li>Tìm được theo: <strong>họ tên</strong>, <strong>pháp danh</strong>, <strong>số điện thoại</strong>, <strong>số CCCD</strong>, hoặc <strong>tên chùa</strong>.</li>
                                 <li>Cần gõ tương đối chính xác (đúng dấu tiếng Việt) — không đoán ý gần giống.</li>
-                                <li>Tên chùa trùng ở nhiều tỉnh? Gõ kèm <strong>tên tỉnh</strong> hoặc <strong>tên trụ trì</strong> để lọc, ví dụ "chùa phật quang an giang".</li>
-                                <li>Nhiều chùa khớp sẽ hiện danh sách gọn trước — gõ rõ hơn để xem chi tiết đầy đủ.</li>
+                                <li>Trùng tên ở nhiều nơi? Gõ kèm <strong>tên chùa</strong> hoặc <strong>tên tỉnh</strong> để lọc.</li>
+                                <li>Nhiều người khớp sẽ hiện danh sách gọn trước — gõ rõ hơn để xem chi tiết đầy đủ.</li>
                             </ul>
                         </div>
                     </div>

@@ -4,9 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Laravel\Scout\Searchable;
 
 class MonasticProfile extends Model
 {
+    use Searchable;
+
     protected $fillable = [
         'monastic_document_id', 'temple_id', 'province_id',
         'full_name', 'religious_name', 'birth_date', 'gender', 'ethnicity', 'nationality',
@@ -41,5 +44,23 @@ class MonasticProfile extends Model
     public function province(): BelongsTo
     {
         return $this->belongsTo(Province::class);
+    }
+
+    /**
+     * Meilisearch không tự join được — phải chép sẵn tên chùa/tên tỉnh vào đây để tìm
+     * theo "tên chùa" hoạt động (MonasticSearchService), xem lý do tương tự ở
+     * Temple::toSearchableArray().
+     */
+    public function toSearchableArray(): array
+    {
+        return [
+            'id'             => $this->id,
+            'full_name'      => $this->full_name,
+            'religious_name' => $this->religious_name,
+            'phone'          => $this->phone,
+            'id_number'      => $this->id_number,
+            'temple_name'    => $this->temple?->name,
+            'province'       => $this->province?->name,
+        ];
     }
 }

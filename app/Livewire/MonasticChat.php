@@ -4,20 +4,22 @@ namespace App\Livewire;
 
 use App\Models\Conversation;
 use App\Models\Message;
-use App\Services\TempleChatService;
-use App\Services\TempleSearchService;
+use App\Services\MonasticChatService;
+use App\Services\MonasticSearchService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
-#[Layout('layouts.chat', ['title' => 'Tra cứu tự viện'])]
-class TempleChat extends Component
+/**
+ * Sao chép nguyên kiến trúc TempleChat — xem đó để hiểu lý do #[Url]/mount()/loadConversations()
+ * — chỉ khác: lọc theo type='monastic' để 2 luồng không lẫn lịch sử chat của nhau
+ * (cùng dùng chung bảng conversations/messages, xem migration add_type_to_conversations_table).
+ */
+#[Layout('layouts.chat', ['title' => 'Tra cứu tăng ni'])]
+class MonasticChat extends Component
 {
-    // Đồng bộ vào URL (?c=ID) thay vì tự chọn "cuộc trò chuyện gần nhất" mỗi lần
-    // mount — nếu không, bấm "Trò chuyện mới" rồi F5 sẽ lại nhảy về cuộc cũ vì
-    // component mount lại từ đầu và không còn nhớ gì đã chọn "mới".
     #[Url(as: 'c', history: true)]
     public ?int $conversationId = null;
 
@@ -25,10 +27,7 @@ class TempleChat extends Component
 
     public function mount(): void
     {
-        // conversationId có thể tới từ URL — xác thực nó thật sự thuộc user này,
-        // không thì bỏ qua (coi như trò chuyện mới) thay vì lỗi hoặc lộ dữ liệu
-        // người khác.
-        if ($this->conversationId && ! Auth::user()->conversations()->where('type', 'temple')->where('id', $this->conversationId)->exists()) {
+        if ($this->conversationId && ! Auth::user()->conversations()->where('type', 'monastic')->where('id', $this->conversationId)->exists()) {
             $this->conversationId = null;
         }
     }
@@ -36,7 +35,7 @@ class TempleChat extends Component
     /** @return \Illuminate\Support\Collection<int, Conversation> */
     private function loadConversations()
     {
-        return Auth::user()->conversations()->where('type', 'temple')->latest('id')->get();
+        return Auth::user()->conversations()->where('type', 'monastic')->latest('id')->get();
     }
 
     /** @return \Illuminate\Support\Collection<int, Message> */
@@ -57,14 +56,14 @@ class TempleChat extends Component
 
     public function selectConversation(int $conversationId): void
     {
-        $conversation = Auth::user()->conversations()->where('type', 'temple')->findOrFail($conversationId);
+        $conversation = Auth::user()->conversations()->where('type', 'monastic')->findOrFail($conversationId);
         $this->conversationId = $conversation->id;
         $this->question = '';
     }
 
     public function deleteConversation(int $conversationId): void
     {
-        $conversation = Auth::user()->conversations()->where('type', 'temple')->findOrFail($conversationId);
+        $conversation = Auth::user()->conversations()->where('type', 'monastic')->findOrFail($conversationId);
         $conversation->delete();
 
         if ($this->conversationId === $conversationId) {
@@ -83,7 +82,7 @@ class TempleChat extends Component
         if (! $this->conversationId) {
             $conversation = Auth::user()->conversations()->create([
                 'title' => Str::limit($question, 60),
-                'type'  => 'temple',
+                'type'  => 'monastic',
             ]);
             $this->conversationId = $conversation->id;
         }
@@ -96,28 +95,25 @@ class TempleChat extends Component
 
         $this->question = '';
 
-        // Limit 10 (thay vì mặc định 5) — chế độ liệt kê danh sách cần đủ số lượng để
-        // hữu ích khi 1 tên chùa trùng ở nhiều tỉnh (vd "Chùa Phật Quang" có ở hơn
-        // chục tỉnh), giúp người dùng thấy đủ để chọn tỉnh cần gõ thêm.
-        $temples = app(TempleSearchService::class)->search($question, limit: 10);
-        $answer = app(TempleChatService::class)->ask($question, $temples);
+        $profiles = app(MonasticSearchService::class)->search($question, limit: 10);
+        $answer = app(MonasticChatService::class)->ask($question, $profiles);
 
         Message::create([
             'conversation_id' => $this->conversationId,
             'role'            => 'assistant',
             'content'         => $answer,
-            'temples'         => $temples->map(fn ($t) => [
-                'name'         => $t->name,
-                'code'         => $t->code,
-                'province'     => $t->province?->name,
-                'download_url' => $t->latestDocument?->download_url,
+            'monastics'       => $profiles->map(fn ($p) => [
+                'full_name'    => $p->full_name,
+                'temple'       => $p->temple?->name,
+                'province'     => $p->province?->name,
+                'download_url' => $p->document?->download_url,
             ])->all(),
         ]);
     }
 
     public function render()
     {
-        return view('livewire.temple-chat', [
+        return view('livewire.monastic-chat', [
             'conversations' => $this->loadConversations(),
             'messages'      => $this->loadMessages(),
         ]);

@@ -125,6 +125,11 @@ class TempleSearchService
     private function searchFromListLine(string $query, int $limit): ?Collection
     {
         $clean = str_replace('**', '', $query);
+        // Xoá số thứ tự đầu dòng (vd "1. ") nếu người dùng copy nguyên cả dòng trong
+        // danh sách — nếu không, "(.+?)" phía dưới sẽ nuốt luôn cả số vào tên chùa,
+        // khiến LIKE-query không khớp bản ghi thật (đã tái hiện thực tế: paste
+        // "1. **CHÙA X** (Tỉnh) — Trụ trì: Y" trả về 0 kết quả).
+        $clean = preg_replace('/^\d+\.\s*/', '', $clean);
 
         if (! preg_match('/^(.+?)\s*\(([^)]+)\)\s*[—-]\s*Trụ trì:\s*(.+)$/u', $clean, $m)) {
             return null;

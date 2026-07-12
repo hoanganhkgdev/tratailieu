@@ -8,11 +8,15 @@ use App\Filament\Resources\MonasticDocumentResource\Pages\ViewMonasticDocument;
 use App\Filament\Resources\MonasticProfileResource\Pages\ListMonasticProfiles;
 use App\Filament\Resources\MonasticProfileResource\Pages\ViewMonasticProfile;
 use App\Jobs\ProcessMonasticDocumentJob;
+use App\Livewire\MonasticChat;
+use App\Models\Conversation;
+use App\Models\Message;
 use App\Models\MonasticDocument;
 use App\Models\MonasticProfile;
 use App\Models\Province;
 use App\Models\Temple;
 use App\Models\User;
+use App\Services\MonasticSearchService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
@@ -22,10 +26,13 @@ class MonasticModuleSmokeTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected User $user;
+
     protected function setUp(): void
     {
         parent::setUp();
-        $this->actingAs(User::factory()->create());
+        $this->user = User::factory()->create();
+        $this->actingAs($this->user);
     }
 
     public function test_import_monastics_page_renders(): void
@@ -123,5 +130,150 @@ class MonasticModuleSmokeTest extends TestCase
             ->assertSuccessful()
             ->assertSee('Từ Thành Đạt')
             ->assertSee('CHÙA PHẬT QUANG');
+    }
+
+    public function test_monastic_search_service_matches_by_full_name_religious_name_phone_and_temple(): void
+    {
+        $province = Province::create(['name' => 'An Giang', 'aliases' => []]);
+        $temple = Temple::create([
+            'province_id' => $province->id,
+            'code'        => '0001',
+            'name'        => 'CHÙA PHẬT QUANG',
+            'type'        => 'chua',
+        ]);
+        $document = MonasticDocument::create([
+            'temple_id'   => $temple->id,
+            'province_id' => $province->id,
+            'file_path'   => 'tang-ni/an-giang/e.docx',
+            'file_name'   => 'e.docx',
+            'file_type'   => 'docx',
+            'status'      => 'ready',
+        ]);
+        $profile = MonasticProfile::create([
+            'monastic_document_id' => $document->id,
+            'temple_id'             => $temple->id,
+            'province_id'           => $province->id,
+            'full_name'             => 'Từ Thành Đạt',
+            'religious_name'        => 'Thích Minh Nhẫn',
+            'id_number'             => '091094018475',
+            'phone'                 => '0384557784',
+        ]);
+
+        $search = app(MonasticSearchService::class);
+
+        $this->assertTrue($search->search('Từ Thành Đạt')->contains('id', $profile->id));
+        $this->assertTrue($search->search('Thích Minh Nhẫn')->contains('id', $profile->id));
+        $this->assertTrue($search->search('0384557784')->contains('id', $profile->id));
+        $this->assertTrue($search->search('091094018475')->contains('id', $profile->id));
+        $this->assertTrue($search->search('CHÙA PHẬT QUANG')->contains('id', $profile->id));
+        $this->assertTrue($search->search('không tồn tại xyz')->isEmpty());
+    }
+
+    /**
+     * Cùng lỗi thật đã tái hiện và fix ở TempleSearchService — xem
+     * TempleModuleSmokeTest::test_search_from_list_line_strips_leading_number().
+     */
+    public function test_search_from_list_line_strips_leading_number(): void
+    {
+        $province = Province::create(['name' => 'An Giang', 'aliases' => []]);
+        $temple = Temple::create([
+            'province_id' => $province->id,
+            'code'        => '0002',
+            'name'        => 'CHÙA LINH SƠN',
+            'type'        => 'chua',
+        ]);
+        $document = MonasticDocument::create([
+            'temple_id'   => $temple->id,
+            'province_id' => $province->id,
+            'file_path'   => 'tang-ni/an-giang/g.docx',
+            'file_name'   => 'g.docx',
+            'file_type'   => 'docx',
+            'status'      => 'ready',
+        ]);
+        $profile = MonasticProfile::create([
+            'monastic_document_id' => $document->id,
+            'temple_id'             => $temple->id,
+            'province_id'           => $province->id,
+            'full_name'             => 'Thích Diệu Tâm',
+            'religious_name'        => 'Thích Diệu Tâm',
+        ]);
+
+        $search = app(MonasticSearchService::class);
+
+        $result = $search->search('1. **Thích Diệu Tâm** (Thích Diệu Tâm) — Chùa: CHÙA LINH SƠN, Tỉnh: An Giang');
+
+        $this->assertCount(1, $result);
+        $this->assertSame($profile->id, $result->first()->id);
+    }
+
+    public function test_public_monastic_chat_route_requires_login(): void
+    {
+        \Illuminate\Support\Facades\Auth::logout();
+
+        $this->get('/tra-cuu-tang-ni')->assertRedirect('/admin/login');
+    }
+
+    public function test_public_monastic_chat_component_renders_when_authenticated(): void
+    {
+        Livewire::test(MonasticChat::class)->assertSuccessful();
+    }
+
+    public function test_public_monastic_chat_page_renders_through_full_http_stack(): void
+    {
+        $this->get('/tra-cuu-tang-ni')
+            ->assertOk()
+            ->assertSee('Tra cứu tăng ni')
+            ->assertSee('Hỏi gì về tăng ni cũng được');
+    }
+
+    /**
+     * Conversations tăng ni và tự viện dùng CHUNG 1 bảng (phân biệt qua cột "type")
+     * — đây là rủi ro thật cần test riêng: đảm bảo sidebar tăng ni không lẫn lịch sử
+     * chat tự viện của cùng user, và ngược lại.
+     */
+    public function test_monastic_chat_sidebar_does_not_leak_temple_conversations(): void
+    {
+        $user = $this->user;
+        $templeConversation = Conversation::create(['user_id' => $user->id, 'title' => 'Hỏi về chùa A', 'type' => 'temple']);
+        $monasticConversation = Conversation::create(['user_id' => $user->id, 'title' => 'Hỏi về thầy B', 'type' => 'monastic']);
+
+        Livewire::test(MonasticChat::class)
+            ->assertSee('Hỏi về thầy B')
+            ->assertDontSee('Hỏi về chùa A');
+    }
+
+    public function test_monastic_chat_ask_returns_detail_for_single_match(): void
+    {
+        $province = Province::create(['name' => 'An Giang', 'aliases' => []]);
+        $temple = Temple::create([
+            'province_id' => $province->id,
+            'code'        => '0001',
+            'name'        => 'CHÙA PHẬT QUANG',
+            'type'        => 'chua',
+        ]);
+        $document = MonasticDocument::create([
+            'temple_id'   => $temple->id,
+            'province_id' => $province->id,
+            'file_path'   => 'tang-ni/an-giang/f.docx',
+            'file_name'   => 'f.docx',
+            'file_type'   => 'docx',
+            'status'      => 'ready',
+        ]);
+        MonasticProfile::create([
+            'monastic_document_id' => $document->id,
+            'temple_id'             => $temple->id,
+            'province_id'           => $province->id,
+            'full_name'             => 'Từ Thành Đạt',
+            'religious_name'        => 'Thích Minh Nhẫn',
+            'phone'                 => '0384557784',
+        ]);
+
+        Livewire::test(MonasticChat::class)
+            ->set('question', 'Từ Thành Đạt')
+            ->call('ask')
+            ->assertSee('Từ Thành Đạt')
+            ->assertSee('CHÙA PHẬT QUANG');
+
+        $this->assertDatabaseHas('conversations', ['user_id' => $this->user->id, 'type' => 'monastic']);
     }
 }

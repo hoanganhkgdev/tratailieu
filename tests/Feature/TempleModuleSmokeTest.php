@@ -198,6 +198,32 @@ class TempleModuleSmokeTest extends TestCase
         $this->assertTrue($search->search('không tồn tại xyz')->isEmpty());
     }
 
+    /**
+     * Đã tái hiện được lỗi thật: khi người dùng copy NGUYÊN 1 dòng trong danh sách
+     * gợi ý (bao gồm cả số thứ tự "1. " ở đầu do formatList() sinh ra) rồi dán lại,
+     * số thứ tự bị regex nuốt vào tên chùa khiến LIKE-query không khớp bản ghi thật,
+     * trả về 0 kết quả thay vì đúng 1 tự viện — dù không có số thứ tự thì khớp bình
+     * thường. Fix ở searchFromListLine() bằng cách xoá số thứ tự trước khi parse.
+     */
+    public function test_search_from_list_line_strips_leading_number(): void
+    {
+        $province = Province::create(['name' => 'An Giang', 'aliases' => []]);
+        $temple = Temple::create([
+            'province_id' => $province->id,
+            'code'        => '0005',
+            'name'        => 'CHÙA SEN VÀNG',
+            'type'        => 'chua',
+            'head_monk'   => 'Thích Diệu Tâm',
+        ]);
+
+        $search = app(TempleSearchService::class);
+
+        $result = $search->search('1. **CHÙA SEN VÀNG** (An Giang) — Trụ trì: Thích Diệu Tâm');
+
+        $this->assertCount(1, $result);
+        $this->assertSame($temple->id, $result->first()->id);
+    }
+
     public function test_public_chat_route_requires_login(): void
     {
         \Illuminate\Support\Facades\Auth::logout();
