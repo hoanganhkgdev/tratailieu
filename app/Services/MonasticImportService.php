@@ -34,6 +34,14 @@ class MonasticImportService
      */
     private const MIN_TEXT_LENGTH_FOR_TEXT_MODE = 200;
 
+    /**
+     * Gemini thỉnh thoảng trả JSON bị cắt cụt giữa chừng dù finishReason báo "STOP"
+     * (không phải do chạm giới hạn maxOutputTokens — đã kiểm chứng thực tế: cùng 1
+     * ảnh, gọi lại nhiều lần, có lần JSON hợp lệ có lần cụt ở cùng vị trí ngẫu nhiên,
+     * ~1/3 số lần). Thử lại vài lần thay vì để cả hồ sơ rơi vào "failed" oan.
+     */
+    private const MAX_JSON_RETRIES = 3;
+
     public function process(MonasticDocument $document): void
     {
         $data = null;
@@ -455,16 +463,14 @@ PROMPT;
         // cần giới hạn token lớn như TempleImportService.
         $excerpt = Str::limit($text, 8000);
 
-        $response = Gemini::generativeModel(model: 'gemini-flash-latest')
+        return $this->generateWithRetry($document, fn () => Gemini::generativeModel(model: 'gemini-flash-latest')
             ->withGenerationConfig(new GenerationConfig(
                 maxOutputTokens: 2000,
                 temperature: 0,
                 responseMimeType: ResponseMimeType::APPLICATION_JSON,
                 thinkingConfig: new ThinkingConfig(includeThoughts: false, thinkingBudget: 0),
             ))
-            ->generateContent(self::INSTRUCTIONS."\n\n".$excerpt);
-
-        return $this->parseGeminiResponse($document, $response);
+            ->generateContent(self::INSTRUCTIONS."\n\n".$excerpt));
     }
 
     /**
@@ -487,7 +493,7 @@ PROMPT;
             );
         }
 
-        $response = Gemini::generativeModel(model: 'gemini-flash-latest')
+        return $this->generateWithRetry($document, fn () => Gemini::generativeModel(model: 'gemini-flash-latest')
             ->withGenerationConfig(new GenerationConfig(
                 // BẮT BUỘC — nếu không set, model tự bật "thinking" ngầm (đã kiểm chứng
                 // thực tế: model mặc định sinh ~1900 token "thoughts" ẩn dù không cần,
@@ -497,9 +503,25 @@ PROMPT;
                 thinkingConfig: new ThinkingConfig(includeThoughts: false, thinkingBudget: 0),
                 responseMimeType: ResponseMimeType::APPLICATION_JSON,
             ))
-            ->generateContent($content);
+            ->generateContent($content));
+    }
 
-        return $this->parseGeminiResponse($document, $response);
+    /**
+     * @param  callable(): mixed  $makeResponse
+     */
+    private function generateWithRetry(MonasticDocument $document, callable $makeResponse): array
+    {
+        $lastException = null;
+
+        for ($attempt = 1; $attempt <= self::MAX_JSON_RETRIES; $attempt++) {
+            try {
+                return $this->parseGeminiResponse($document, $makeResponse());
+            } catch (\RuntimeException $e) {
+                $lastException = $e;
+            }
+        }
+
+        throw $lastException;
     }
 
     private function parseGeminiResponse(MonasticDocument $document, mixed $response): array
