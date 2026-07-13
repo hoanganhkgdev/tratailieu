@@ -62,7 +62,15 @@ class MonasticImportService
                 $text = $this->parser->extractTextPreservingCheckboxes($document->file_path, $document->file_type);
             }
 
-            if ($document->file_type === 'pdf' && mb_strlen(trim($text)) < self::MIN_TEXT_LENGTH_FOR_TEXT_MODE) {
+            // Ngoài "quá ngắn" (file scan/chụp ảnh), 1 số PDF có lớp text nhưng bị lỗi
+            // encoding font nhúng (đã gặp thực tế: pdfparser giải mã ra byte KHÔNG hợp
+            // lệ UTF-8 — không phải thiếu ký tự mà đọc sai hẳn font map) — mb_check_encoding
+            // bắt được, coi như không có text dùng được, chuyển sang vision thay vì để
+            // các bước xử lý chuỗi phía sau (Str::limit, preg_replace...) crash giữa
+            // chừng với lỗi "Malformed UTF-8 characters".
+            $textUsable = mb_strlen(trim($text)) >= self::MIN_TEXT_LENGTH_FOR_TEXT_MODE && mb_check_encoding($text, 'UTF-8');
+
+            if ($document->file_type === 'pdf' && ! $textUsable) {
                 // File scan/chụp ảnh trang giấy, không có lớp text để đọc bằng cách
                 // thường — chuyển sang cho AI đọc trực tiếp ảnh từng trang (vision).
                 $data = $this->processScannedPdf($document);
