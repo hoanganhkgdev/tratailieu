@@ -25,7 +25,10 @@ class MonasticImportService
 
     private const OUTPUT_COST_PER_TOKEN = 2.50 / 1_000_000;
 
-    public function __construct(private DocumentParserService $parser) {}
+    public function __construct(
+        private DocumentParserService $parser,
+        private MonasticFormParserService $formParser,
+    ) {}
 
     /**
      * Dưới ngưỡng này coi như PDF không có lớp text thật (chỉ là ảnh scan/chụp trang
@@ -76,20 +79,28 @@ class MonasticImportService
                 $data = $this->processScannedPdf($document);
             } else {
                 $clarified = $this->clarifyCheckboxes($text);
-                $data = $this->analyze($document, $clarified);
 
-                // "Phân loại" chỉ có đúng 3 nhãn cố định — dù text đã rõ ràng, AI vẫn
-                // thỉnh thoảng đọc sai khi phải xử lý đồng thời 30+ field khác trong
-                // cùng 1 lượt gọi (đã kiểm chứng: tách riêng ra hỏi AI 1 mình thì luôn
-                // đúng, nhưng lẫn trong toàn bộ phiếu thì hay trả dư). Tự parse lại
-                // bằng PHP thay vì tin AI — đáng tin cậy tuyệt đối vì chỉ cần so khớp
-                // nhãn [ĐÃ_CHỌN]/[chưa_chọn] ngay trước 1 trong 3 nhãn cố định, không
-                // cần suy luận ngữ nghĩa. (Vision đọc trực tiếp checkbox trong ảnh nên
-                // không cần bước này — AI thấy ô nào tô đậm/tick thật, không phải đoán
-                // qua ký hiệu Unicode.)
-                $deterministicClassification = $this->extractClassification($clarified);
-                if ($deterministicClassification !== null) {
-                    $data['classification'] = $deterministicClassification;
+                // "Phiếu số 3" là mẫu chuẩn hóa, nhãn từng field cố định tuyệt đối —
+                // thử đọc bằng regex theo nhãn TRƯỚC (miễn phí, đáng tin hơn AI vì
+                // không random/không bị cắt JSON giữa chừng), chỉ gọi AI khi không
+                // nhận diện được đúng mẫu này (template khác/text bất thường — xem
+                // MonasticFormParserService::MIN_LABELS_MATCHED).
+                $data = $this->formParser->parse($clarified);
+
+                if ($data === null) {
+                    $data = $this->analyze($document, $clarified);
+
+                    // "Phân loại" chỉ có đúng 3 nhãn cố định — dù text đã rõ ràng, AI
+                    // vẫn thỉnh thoảng đọc sai khi phải xử lý đồng thời 30+ field khác
+                    // trong cùng 1 lượt gọi (đã kiểm chứng: tách riêng ra hỏi AI 1 mình
+                    // thì luôn đúng, nhưng lẫn trong toàn bộ phiếu thì hay trả dư). Tự
+                    // parse lại bằng PHP thay vì tin AI — đáng tin cậy tuyệt đối vì chỉ
+                    // cần so khớp nhãn [ĐÃ_CHỌN]/[chưa_chọn] ngay trước 1 trong 3 nhãn
+                    // cố định, không cần suy luận ngữ nghĩa.
+                    $deterministicClassification = $this->extractClassification($clarified);
+                    if ($deterministicClassification !== null) {
+                        $data['classification'] = $deterministicClassification;
+                    }
                 }
             }
 
