@@ -8,6 +8,14 @@ use Smalot\PdfParser\Parser as PdfParser;
 
 class DocumentParserService
 {
+    private const GEMINI_SUPPORTED_IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/heic', 'image/heif', 'image/webp'];
+
+    /**
+     * Cạnh dài tối đa gửi cho Gemini — ảnh scan gốc thường 1600-2500px, thừa độ phân
+     * giải so với nhu cầu đọc chữ, giảm bớt giúp payload nhẹ hơn khi gửi qua mạng.
+     */
+    private const MAX_IMAGE_DIMENSION = 1600;
+
     public function extractText(string $filePath, string $fileType): string
     {
         // R2 (driver s3) không có filesystem local nên path() không dùng được —
@@ -89,6 +97,103 @@ class DocumentParserService
         $document = $parser->parseFile($absolutePath);
 
         return $document->getText();
+    }
+
+    /**
+     * Dùng khi PDF không có lớp text (file scan/chụp ảnh trang giấy — extractText()
+     * trả về rỗng) — lấy ảnh TRANG LỚN NHẤT của mỗi trang (loại bỏ logo/watermark
+     * nhỏ hay đi kèm) để gửi cho AI đọc trực tiếp bằng vision thay vì đọc text.
+     *
+     * @return array<int, array{data: string, mime: string}>
+     */
+    public function extractPageImages(string $filePath): array
+    {
+        $tmpPath = tempnam(sys_get_temp_dir(), 'monastic_scan_').'.pdf';
+        file_put_contents($tmpPath, Storage::disk('public')->get($filePath));
+
+        try {
+            $pdf = (new PdfParser())->parseFile($tmpPath);
+            $images = [];
+
+            foreach ($pdf->getPages() as $page) {
+                $seen = [];
+                $best = null;
+
+                foreach ($page->getXObjects() as $xobject) {
+                    // getXObjects() trả cùng 1 object dưới nhiều key khác nhau.
+                    $hash = spl_object_id($xobject);
+
+                    if (isset($seen[$hash]) || ! method_exists($xobject, 'getContent')) {
+                        continue;
+                    }
+
+                    $seen[$hash] = true;
+                    $data = $xobject->getContent();
+
+                    if (! $data) {
+                        continue;
+                    }
+
+                    $info = @getimagesizefromstring($data);
+
+                    if (! $info) {
+                        continue;
+                    }
+
+                    $area = $info[0] * $info[1];
+
+                    if ($best === null || $area > $best['area']) {
+                        $best = ['data' => $data, 'area' => $area, 'mime' => $info['mime']];
+                    }
+                }
+
+                if ($best !== null) {
+                    $images[] = $this->ensureGeminiSupportedImage($best['data'], $best['mime']);
+                }
+            }
+
+            return $images;
+        } finally {
+            @unlink($tmpPath);
+        }
+    }
+
+    /**
+     * 2 việc gộp chung 1 bước (đều cần Imagick nên xử lý 1 lần cho gọn, tránh decode
+     * lại ảnh 2 lượt):
+     *
+     * 1. Convert định dạng — Gemini chỉ nhận PNG/JPEG/HEIC/HEIF/WEBP, PDF scan cũ đôi
+     *    khi nhúng ảnh trang bằng JPEG2000 (image/jp2, GD hoàn toàn không đọc được
+     *    định dạng này) — đã kiểm chứng thực tế: toàn bộ PDF scan tỉnh Cà Mau dùng
+     *    jp2, làm crash thẳng ở bước dựng request (không phải lỗi AI, retry cũng
+     *    không tự khỏi).
+     * 2. Giảm kích thước nếu vượt MAX_IMAGE_DIMENSION — xem hằng số đó để hiểu lý do.
+     */
+    private function ensureGeminiSupportedImage(string $data, string $mime): array
+    {
+        $needsFormatConvert = ! in_array($mime, self::GEMINI_SUPPORTED_IMAGE_MIMES, true);
+        $info = @getimagesizefromstring($data);
+        $needsResize = $info && max($info[0], $info[1]) > self::MAX_IMAGE_DIMENSION;
+
+        if (! $needsFormatConvert && ! $needsResize) {
+            return ['data' => $data, 'mime' => $mime];
+        }
+
+        $imagick = new \Imagick();
+        $imagick->readImageBlob($data);
+
+        if ($needsResize) {
+            // bestFit=true tự giữ tỉ lệ khung hình, chỉ co lại chứ không phóng to ảnh
+            // vốn đã nhỏ hơn ngưỡng.
+            $imagick->resizeImage(self::MAX_IMAGE_DIMENSION, self::MAX_IMAGE_DIMENSION, \Imagick::FILTER_LANCZOS, 1, true);
+        }
+
+        $imagick->setImageFormat('jpeg');
+        $imagick->setImageCompressionQuality(85);
+        $converted = $imagick->getImageBlob();
+        $imagick->destroy();
+
+        return ['data' => $converted, 'mime' => 'image/jpeg'];
     }
 
     private function extractFromDocx(string $absolutePath): string

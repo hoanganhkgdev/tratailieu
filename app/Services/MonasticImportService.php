@@ -4,16 +4,27 @@ namespace App\Services;
 
 use App\Models\MonasticDocument;
 use App\Models\MonasticProfile;
+use Gemini\Data\Blob;
+use Gemini\Data\GenerationConfig;
+use Gemini\Data\ThinkingConfig;
+use Gemini\Enums\MimeType as GeminiMimeType;
+use Gemini\Enums\ResponseMimeType;
+use Gemini\Laravel\Facades\Gemini;
+use Illuminate\Support\Str;
 
 /**
- * KHÔNG dùng AI — "Phiếu số 3" là mẫu chuẩn hóa nhà nước, nhãn từng field cố định
- * tuyệt đối (đã kiểm chứng qua nhiều file khác nhau), nên đọc thẳng bằng regex theo
- * nhãn (MonasticFormParserService) là đủ chính xác và MIỄN PHÍ — mục đích cuối cùng
- * chỉ là trích chữ để tra cứu + tải lại file gốc, không cần hiểu ngữ nghĩa sâu như AI.
+ * "Phiếu số 3" là mẫu chuẩn hóa nhà nước, nhãn từng field cố định tuyệt đối (đã kiểm
+ * chứng qua nhiều file khác nhau) — file có lớp text thật (docx/PDF gõ máy) đọc thẳng
+ * bằng regex (MonasticFormParserService), MIỄN PHÍ và đáng tin hơn AI (không
+ * random/không bị cắt JSON giữa chừng).
  *
- * File scan/chụp ảnh (không có lớp text) hoặc không khớp đúng mẫu phiếu này thì
- * KHÔNG tự động trích được — đánh dấu "failed" kèm lý do rõ ràng để nhập tay, thay vì
- * gọi AI đọc ảnh như trước (từng dùng Gemini vision, đã bỏ hẳn — xem lịch sử commit).
+ * File scan/chụp ảnh (không có lớp text) thì regex bó tay — bắt buộc cần AI đọc ảnh
+ * (vision). Dùng Gemini ở chế độ FREE TIER (key tạo trên project KHÔNG bật billing,
+ * xem README/nhật ký trao đổi) — cùng độ chính xác đã kiểm chứng trước đó, chỉ khác
+ * bị giới hạn tốc độ (~15 request/phút) thay vì tính tiền theo dùng thật.
+ *
+ * KHÔNG còn field "tự viện" và KHÔNG tự đoán tỉnh qua AI nữa — tỉnh do người dùng CHỌN
+ * TRƯỚC lúc upload (đã lưu sẵn trên $document->province_id), xem finalize().
  */
 class MonasticImportService
 {
@@ -28,6 +39,15 @@ class MonasticImportService
      * rác, trong khi PDF có lớp text luôn cho ra hàng nghìn ký tự.
      */
     private const MIN_TEXT_LENGTH_FOR_TEXT_MODE = 200;
+
+    /**
+     * Gemini thỉnh thoảng trả JSON bị cắt cụt giữa chừng dù finishReason báo "STOP"
+     * (đã kiểm chứng thực tế trước đây: cùng 1 ảnh, gọi lại nhiều lần, có lần JSON
+     * hợp lệ có lần cụt ở cùng vị trí ngẫu nhiên, ~1/3 số lần) — thử lại vài lần thay
+     * vì để cả hồ sơ rơi vào "failed" oan. Free tier còn bị giới hạn tốc độ (429) —
+     * cùng cơ chế retry này xử lý luôn, xem generateWithRetry().
+     */
+    private const MAX_JSON_RETRIES = 3;
 
     public function process(MonasticDocument $document): void
     {
@@ -48,18 +68,20 @@ class MonasticImportService
             // Ngoài "quá ngắn" (file scan/chụp ảnh), 1 số PDF có lớp text nhưng bị lỗi
             // encoding font nhúng (đã gặp thực tế: pdfparser giải mã ra byte KHÔNG hợp
             // lệ UTF-8 — không phải thiếu ký tự mà đọc sai hẳn font map) — mb_check_encoding
-            // bắt được, coi như không có text dùng được.
+            // bắt được, coi như không có text dùng được, chuyển sang vision.
             $textUsable = mb_strlen(trim($text)) >= self::MIN_TEXT_LENGTH_FOR_TEXT_MODE && mb_check_encoding($text, 'UTF-8');
 
-            if (! $textUsable) {
-                throw new \RuntimeException('File không có lớp text đọc được (file scan/chụp ảnh, hoặc lỗi encoding font) — không còn dùng AI để đọc ảnh, cần nhập tay.');
-            }
+            if ($document->file_type === 'pdf' && ! $textUsable) {
+                // File scan/chụp ảnh trang giấy — không còn cách nào khác ngoài AI đọc
+                // ảnh trực tiếp (vision), regex không có gì để bám vào.
+                $data = $this->processScannedPdf($document);
+            } else {
+                $clarified = $this->clarifyCheckboxes($text);
+                $data = $this->formParser->parse($clarified);
 
-            $clarified = $this->clarifyCheckboxes($text);
-            $data = $this->formParser->parse($clarified);
-
-            if ($data === null) {
-                throw new \RuntimeException('Không nhận diện được đúng mẫu "Phiếu số 3" (nhãn field không khớp) — kiểm tra lại định dạng file hoặc nhập tay.');
+                if ($data === null) {
+                    throw new \RuntimeException('Không nhận diện được đúng mẫu "Phiếu số 3" (nhãn field không khớp) — kiểm tra lại định dạng file hoặc nhập tay.');
+                }
             }
 
             $this->finalize($document, $data);
@@ -70,6 +92,17 @@ class MonasticImportService
                 'extracted_json' => $data,
             ]);
         }
+    }
+
+    private function processScannedPdf(MonasticDocument $document): array
+    {
+        $images = $this->parser->extractPageImages($document->file_path);
+
+        if (empty($images)) {
+            throw new \RuntimeException('File PDF không có lớp text và cũng không trích được ảnh trang nào để đọc bằng AI.');
+        }
+
+        return $this->analyzeFromImages($document, $images);
     }
 
     private function finalize(MonasticDocument $document, array $data): void
@@ -185,5 +218,155 @@ class MonasticImportService
         $filtered = array_values(array_intersect($value, $valid));
 
         return $filtered === [] ? null : $filtered;
+    }
+
+    /**
+     * Dùng cho file scan/chụp ảnh (không có lớp text) — CÙNG schema field với
+     * MonasticFormParserService (không có province_name/temple_name — tỉnh đã chọn
+     * sẵn lúc upload, không còn field tự viện — xem finalize()), chỉ khác input là
+     * ẢNH từng trang chứ không phải văn bản.
+     */
+    private const VISION_INSTRUCTIONS = <<<PROMPT
+Các ảnh đính kèm là từng trang chụp/scan của "Phiếu thu thập thông tin dữ liệu về chức sắc, chức
+việc, nhà tu hành tôn giáo (Phiếu số 3)" — hồ sơ CÁ NHÂN của 1 tăng/ni Phật giáo Việt Nam, xếp theo
+đúng thứ tự trang. Đọc trực tiếp nội dung viết tay hoặc đánh máy trong ảnh và trả về JSON.
+
+Phiếu có các nhóm thông tin theo thứ tự: (I) Định danh & cá nhân cơ bản, (II) Hành đạo & chuyên
+môn tôn giáo, (III) Đào tạo, (IV) Hoạt động & bổ nhiệm, (V) Liên hệ & tình trạng. Lưu ý:
+- Chữ viết tay có thể khó đọc — cố gắng đọc chính xác nhất có thể, phần nào THẬT SỰ không đọc
+  được thì trả null, TUYỆT ĐỐI không đoán bừa hay bịa ra giá trị.
+- Field nào phiếu để trống, gạch chấm "...", hoặc không ghi gì thì trả null.
+- Ngày tháng giữ nguyên định dạng "dd/mm/yyyy" như trong phiếu.
+- "Phân loại" là checkbox có thể tick nhiều ô — nhìn trực tiếp trong ảnh xem ô vuông nào có dấu
+  tick/gạch chéo/tô đậm (không phải ô trống), trả về mảng các giá trị đã tick trong số: "chuc_sac"
+  (Chức sắc), "chuc_viec" (Chức việc), "nha_tu_hanh" (Nhà tu hành).
+- "Tình trạng hiện tại" phiếu có 2 nhóm checkbox tuỳ đối tượng (chức sắc/chức việc: đang hoạt
+  động/hưu trí/cách chức/đã chết; nhà tu hành: đang tu hành/hoàn tục/đã chết/tẩn xuất) — chỉ lấy
+  đúng 1 giá trị có ô được tick thành chuỗi text, ví dụ "Đang hoạt động" hoặc "Đang tu hành".
+
+Trả về JSON đúng định dạng sau (field nào phiếu không có/để trống/không đọc được thì null):
+{
+  "full_name": "họ và tên khai sinh",
+  "religious_name": "tên trong tôn giáo / pháp danh",
+  "birth_date": "dd/mm/yyyy",
+  "gender": "Nam | Nữ",
+  "ethnicity": "dân tộc",
+  "nationality": "quốc tịch",
+  "id_number": "số CCCD",
+  "id_issued_date": "dd/mm/yyyy",
+  "id_issued_place": "nơi cấp CCCD",
+  "hometown": "quê quán",
+  "permanent_address": "địa chỉ thường trú",
+  "current_address": "nơi ở hiện tại (nguyên văn)",
+  "religion": "tôn giáo",
+  "religious_org": "tổ chức tôn giáo",
+  "sect": "hệ phái/dòng tu",
+  "classification": ["chuc_sac", "chuc_viec", "nha_tu_hanh"],
+  "current_position": "chức vụ/phẩm vị hiện tại",
+  "ordination_date": "dd/mm/yyyy",
+  "concurrent_position": "chức vụ kiêm nhiệm",
+  "activity_scope": "phạm vi hoạt động (toàn quốc / một số tỉnh, ghi rõ / tên tỉnh cụ thể)",
+  "notes": "ghi chú",
+  "education_level": "trình độ học vấn phổ thông",
+  "professional_qualification": "trình độ chuyên môn",
+  "religious_education_level": "trình độ tu học",
+  "training_institutions": "cơ sở đào tạo tôn giáo đã theo học",
+  "languages": "ngoại ngữ/tiếng dân tộc khác",
+  "activity_history": "quá trình hoạt động: từ ngày-đến ngày, nơi hành đạo, chức vụ đảm nhận (gộp thành 1 đoạn văn ngắn)",
+  "commendation_discipline": "khen thưởng/kỷ luật",
+  "violations": "khiếu kiện, vi phạm pháp luật",
+  "congress_term": "nhiệm kỳ đại hội từ năm-đến năm",
+  "phone": "số điện thoại",
+  "email": "email",
+  "status": "tình trạng hiện tại (1 giá trị text, xem hướng dẫn trên)"
+}
+
+Chỉ trả về JSON thuần, không giải thích thêm, không bọc trong markdown code block.
+PROMPT;
+
+    /**
+     * @param  array<int, array{data: string, mime: string}>  $images
+     */
+    private function analyzeFromImages(MonasticDocument $document, array $images): array
+    {
+        $content = [self::VISION_INSTRUCTIONS];
+
+        foreach ($images as $image) {
+            $content[] = new Blob(
+                mimeType: GeminiMimeType::from($image['mime']),
+                data: base64_encode($image['data'])
+            );
+        }
+
+        return $this->generateWithRetry($document, fn () => Gemini::generativeModel(model: 'gemini-flash-latest')
+            ->withGenerationConfig(new GenerationConfig(
+                // BẮT BUỘC — nếu không set, model tự bật "thinking" ngầm (đã kiểm chứng
+                // thực tế: model mặc định sinh ~1900 token "thoughts" ẩn dù không cần).
+                // Free tier vẫn tính vào rate limit dù không tính tiền, khoá cứng để
+                // tránh lãng phí quota vô ích — đã đo lại xác nhận không đổi độ chính xác.
+                thinkingConfig: new ThinkingConfig(includeThoughts: false, thinkingBudget: 0),
+                responseMimeType: ResponseMimeType::APPLICATION_JSON,
+            ))
+            ->generateContent($content));
+    }
+
+    /**
+     * Ngoài JSON bị cắt cụt, free tier còn hay gặp lỗi tạm thời do giới hạn tốc độ
+     * (429/"quota exceeded") hoặc quá tải chung ("currently experiencing high
+     * demand") — bắt luôn \Throwable vì cả 3 loại lỗi đều đáng thử lại, chỉ giới hạn
+     * cứng MAX_JSON_RETRIES lần nên không sợ lặp vô hạn. Backoff tăng dần (1s, 2s,
+     * 3s...) dài hơn bản cũ vì free tier cần chờ lâu hơn để rate limit "nguội" lại.
+     *
+     * @param  callable(): mixed  $makeResponse
+     */
+    private function generateWithRetry(MonasticDocument $document, callable $makeResponse): array
+    {
+        $lastException = null;
+
+        for ($attempt = 1; $attempt <= self::MAX_JSON_RETRIES; $attempt++) {
+            try {
+                return $this->parseGeminiResponse($document, $makeResponse());
+            } catch (\Throwable $e) {
+                $lastException = $e;
+
+                if ($attempt < self::MAX_JSON_RETRIES) {
+                    sleep($attempt);
+                }
+            }
+        }
+
+        throw $lastException;
+    }
+
+    /**
+     * Free tier không tính tiền nên KHÔNG cần tính ai_cost_usd nữa — vẫn lưu lại số
+     * token dùng để tiện theo dõi mức tiêu thụ so với giới hạn rate limit hàng ngày.
+     */
+    private function parseGeminiResponse(MonasticDocument $document, mixed $response): array
+    {
+        $usage = $response->usageMetadata;
+        $document->update([
+            'ai_input_tokens'  => $usage->promptTokenCount,
+            'ai_output_tokens' => $usage->candidatesTokenCount,
+        ]);
+
+        if ($response->candidates[0]->finishReason?->value === 'MAX_TOKENS') {
+            throw new \RuntimeException('AI bị cắt phản hồi giữa dòng — cần tăng maxOutputTokens trong MonasticImportService.');
+        }
+
+        $raw = $response->text();
+
+        $sanitized = mb_convert_encoding($raw, 'UTF-8', 'UTF-8');
+        $sanitized = preg_replace('/[\x00-\x1F\x7F]/', ' ', $sanitized) ?? $sanitized;
+        $data      = json_decode(trim($sanitized), true);
+
+        if (json_last_error() !== JSON_ERROR_NONE || ! is_array($data)) {
+            throw new \RuntimeException(
+                'Gemini không trả về JSON hợp lệ: '.json_last_error_msg().
+                ' — đoạn đầu phản hồi: '.Str::limit(trim($sanitized), 300)
+            );
+        }
+
+        return $data;
     }
 }
