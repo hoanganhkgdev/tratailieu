@@ -42,8 +42,12 @@ class MonasticFormParserService
         'hometown'                   => 'Quê quán (Theo thông tin trên VneID)',
         'permanent_address'          => 'Địa chỉ thường trú (Theo thông tin trên VneID)',
         'current_address'            => 'Nơi ở hiện tại',
-        'monastic_cert_number'       => 'Số chứng nhận Tăng ni',
-        'monastic_cert_date'         => 'Ngày tháng cấp',
+        // 2 nhãn dưới đây KHÔNG xuất ra $data (bỏ theo yêu cầu, xem parse()) — vẫn
+        // giữ trong FIELD_LABELS để làm mốc ranh giới, nếu xóa hẳn thì "current_address"
+        // phía trên sẽ nuốt luôn đoạn text "Số chứng nhận Tăng ni: ... Ngày tháng cấp:
+        // ..." vào cuối giá trị của nó (không còn nhãn nào chặn lại trước "Tôn giáo").
+        '_monastic_cert_number'      => 'Số chứng nhận Tăng ni',
+        '_monastic_cert_date'        => 'Ngày tháng cấp',
         'religion'                   => 'Tôn giáo',
         'religious_org'              => 'Tổ chức tôn giáo (Tên tổ chức mà cá nhân là thành viên)',
         'sect'                       => 'Hệ phái/Dòng tu',
@@ -122,8 +126,6 @@ class MonasticFormParserService
             'hometown'                   => $this->clean($raw['hometown'] ?? null),
             'permanent_address'          => $this->clean($raw['permanent_address'] ?? null),
             'current_address'            => $this->clean($raw['current_address'] ?? null),
-            'monastic_cert_number'       => $this->clean($raw['monastic_cert_number'] ?? null),
-            'monastic_cert_date'         => $this->clean($raw['monastic_cert_date'] ?? null),
             'religion'                   => $this->clean($raw['religion'] ?? null),
             'religious_org'              => $this->clean($raw['religious_org'] ?? null),
             'sect'                       => $this->clean($raw['sect'] ?? null),
@@ -167,10 +169,15 @@ class MonasticFormParserService
         $positions = [];
 
         foreach (self::FIELD_LABELS as $key => $label) {
-            // preg_quote($label, '/') tự escape MỌI ký tự đặc biệt trong nhãn (kể cả
-            // "/" xuất hiện tự nhiên trong tiếng Việt như "Hệ phái/Dòng tu" — nếu
-            // không escape, "/" phá vỡ luôn delimiter "/" của chính regex, khiến
-            // preg_match() lỗi "Unknown modifier" âm thầm và bỏ sót field đó).
+            // fuzzyPattern() escape MỌI ký tự đặc biệt trong nhãn (kể cả "/" xuất hiện
+            // tự nhiên trong tiếng Việt như "Hệ phái/Dòng tu" — nếu không escape, "/"
+            // phá vỡ luôn delimiter "/" của chính regex) VÀ chấp nhận khoảng trắng thừa
+            // xen giữa BẤT KỲ ký tự nào trong nhãn — Word đôi khi tách 1 chữ thành
+            // nhiều run khác định dạng ngay GIỮA âm tiết (đã gặp thực tế: "cấp" tách
+            // thành "c" + " ấp", tự nhiên có thêm dấu cách giữa "c" và "ấp" dù cùng 1
+            // từ — không phải lỗi gõ, do cách PhpWord/Word lưu run). Chỉ so khớp
+            // nguyên văn "cấp" thì trượt hẳn field này, phải cho phép \s* giữa từng
+            // ký tự để chịu được kiểu tách run bất thường này.
             //
             // CỐ Ý không match số thứ tự đầu mục (vd "2.") — text docx nối liền không
             // khoảng trắng giữa các field, nên nếu field TRƯỚC đó có giá trị kết thúc
@@ -178,7 +185,7 @@ class MonasticFormParserService
             // ..."), việc match "\d+\." sẽ "ăn nhầm" luôn chữ số cuối "2" của giá trị
             // "12/12" thành số thứ tự — đã tái hiện thực tế bug này. Để số thứ tự lẫn
             // vào cuối giá trị field trước rồi dọn bằng clean() còn an toàn hơn nhiều.
-            $pattern = '/\*?\s*'.preg_quote($label, '/').'/u';
+            $pattern = '/\*?\s*'.$this->fuzzyPattern($label).'/u';
 
             if (! preg_match($pattern, $text, $m, PREG_OFFSET_CAPTURE)) {
                 continue;
@@ -210,7 +217,7 @@ class MonasticFormParserService
         // SECTION_HEADERS. "valueStart" không dùng tới (không field nào tham chiếu
         // key "_section*"), gán bằng "start" cho hợp lệ kiểu dữ liệu.
         foreach (self::SECTION_HEADERS as $i => $header) {
-            $pattern = '/'.preg_quote($header, '/').'/u';
+            $pattern = '/'.$this->fuzzyPattern($header).'/u';
 
             if (preg_match($pattern, $text, $m, PREG_OFFSET_CAPTURE)) {
                 $positions["_section{$i}"] = ['start' => $m[0][1], 'valueStart' => $m[0][1]];
@@ -218,6 +225,19 @@ class MonasticFormParserService
         }
 
         return $positions;
+    }
+
+    /**
+     * Nối từng ký tự (không phải byte — mb_str_split() tách đúng ranh giới ký tự
+     * UTF-8) bằng "\s*" — chịu được khoảng trắng thừa Word chèn giữa chừng 1 nhãn do
+     * tách run khác định dạng (xem lý do chi tiết ở locateLabels()).
+     */
+    private function fuzzyPattern(string $label): string
+    {
+        return implode('\s*', array_map(
+            fn (string $char) => preg_quote($char, '/'),
+            mb_str_split($label)
+        ));
     }
 
     /**

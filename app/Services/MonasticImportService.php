@@ -96,8 +96,6 @@ class MonasticImportService
                 'hometown'                   => $data['hometown'] ?? null,
                 'permanent_address'          => $data['permanent_address'] ?? null,
                 'current_address'            => $data['current_address'] ?? null,
-                'monastic_cert_number'       => $this->truncate($data['monastic_cert_number'] ?? null, 100),
-                'monastic_cert_date'         => $this->toNullableDate($data['monastic_cert_date'] ?? null),
                 'religion'                   => $data['religion'] ?? null,
                 'religious_org'              => $data['religious_org'] ?? null,
                 'sect'                       => $data['sect'] ?? null,

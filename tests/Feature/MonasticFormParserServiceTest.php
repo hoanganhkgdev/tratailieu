@@ -36,8 +36,13 @@ TEXT;
         $this->assertSame('Phường Rạch Giá, tỉnh An Giang', $data['hometown']);
         $this->assertSame('Xã Kiên Lương, tỉnh An Giang', $data['permanent_address']);
         $this->assertSame('Chùa Phật Quang, số 83 Quang Trung, phường Rạch Giá, tỉnh An Giang', $data['current_address']);
-        $this->assertSame('42801/CNTN.2023', $data['monastic_cert_number']);
-        $this->assertSame('04/10/2023', $data['monastic_cert_date']);
+
+        // Bỏ theo yêu cầu — không xuất "Số chứng nhận Tăng ni"/"Ngày tháng cấp" ra
+        // $data nữa (vẫn giữ 2 nhãn này trong FIELD_LABELS làm mốc ranh giới nội bộ,
+        // xem comment ở đó).
+        $this->assertArrayNotHasKey('monastic_cert_number', $data);
+        $this->assertArrayNotHasKey('monastic_cert_date', $data);
+
         $this->assertSame('Phật giáo', $data['religion']);
         $this->assertSame('Giáo hội Phật giáo Việt Nam', $data['religious_org']);
         $this->assertSame('Bắc tông', $data['sect']);
@@ -94,5 +99,23 @@ TEXT;
         $this->assertNotNull($data);
         $this->assertNull($data['ethnicity']);
         $this->assertNull($data['birth_date']);
+    }
+
+    /**
+     * Đã tái hiện lỗi thật (qua ảnh chụp màn hình người dùng gửi): Word đôi khi tách 1
+     * chữ thành nhiều run khác định dạng ngay GIỮA âm tiết, khiến text trích ra có
+     * khoảng trắng thừa xen giữa — vd "cấp" thành "c ấp". Nhãn "Ngày tháng cấp" so
+     * khớp nguyên văn (không có \s* giữa từng ký tự) sẽ trượt hẳn field này — và vì
+     * nhãn này vẫn đóng vai trò mốc ranh giới nội bộ (dù không xuất ra $data nữa, xem
+     * test khác), trượt nhãn còn kéo theo field "religion" ngay sau bị lẫn rác.
+     */
+    public function test_matches_label_with_stray_space_mid_word_from_word_run_split(): void
+    {
+        $text = str_replace('Ngày tháng cấp', 'Ngày tháng c ấp', self::SAMPLE_TEXT);
+
+        $data = app(MonasticFormParserService::class)->parse($text);
+
+        $this->assertNotNull($data);
+        $this->assertSame('Phật giáo', $data['religion']);
     }
 }
