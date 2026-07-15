@@ -4,9 +4,6 @@ namespace App\Services;
 
 use App\Models\MonasticDocument;
 use App\Models\MonasticProfile;
-use App\Models\Province;
-use App\Models\Temple;
-use Illuminate\Support\Facades\DB;
 
 /**
  * KHÔNG dùng AI — "Phiếu số 3" là mẫu chuẩn hóa nhà nước, nhãn từng field cố định
@@ -77,25 +74,16 @@ class MonasticImportService
 
     private function finalize(MonasticDocument $document, array $data): void
     {
-        $province = Province::findByNameOrAlias($data['province_name'] ?? null);
-
-        // Khác với tự viện (bắt buộc phải xác định được tỉnh mới lưu, vì mã tự viện
-        // đánh số theo từng tỉnh), hồ sơ tăng ni vẫn lưu được dù chưa rõ tỉnh/tự viện
-        // — province_id/temple_id chỉ là dữ liệu tham chiếu thêm, sửa tay sau vẫn được,
-        // không có gì phụ thuộc cứng vào nó như code tự viện.
-        $temple = null;
-
-        if ($province && filled($data['temple_name'] ?? null)) {
-            $temple = $this->findTemple($province, $data['temple_name']);
-        }
+        // KHÔNG tự đoán temple_id/province_id từ địa chỉ nữa — MonasticFormParserService
+        // luôn trả province_name/temple_name = null (xem lý do ở đó: dò chuỗi con dễ
+        // trùng nhầm địa danh). Admin tự gán 2 quan hệ này bằng tay trong trang quản lý
+        // khi cần, không có gì phụ thuộc cứng vào nó lúc import.
 
         // Mỗi document ứng với đúng 1 hồ sơ — updateOrCreate theo monastic_document_id
         // để bấm "Xử lý lại" cập nhật đúng bản ghi cũ thay vì tạo hồ sơ trùng lặp.
         MonasticProfile::updateOrCreate(
             ['monastic_document_id' => $document->id],
             [
-                'temple_id'                  => $temple?->id,
-                'province_id'                => $province?->id,
                 'full_name'                  => $data['full_name'] ?? 'Chưa xác định',
                 'religious_name'             => $data['religious_name'] ?? null,
                 'birth_date'                 => $this->toNullableDate($data['birth_date'] ?? null),
@@ -135,48 +123,11 @@ class MonasticImportService
         );
 
         $document->update([
-            'temple_id'      => $temple?->id,
-            'province_id'    => $province?->id,
             'status'         => 'ready',
             'processed_at'   => now(),
             'error_message'  => null,
             'extracted_json' => $data,
         ]);
-    }
-
-    /**
-     * Đối chiếu tên tự viện trích được (từ "nơi hành đạo"/"nơi ở hiện tại") với tự
-     * viện đã có trong CÙNG tỉnh — khớp chuỗi con, phân biệt dấu chuẩn (collation mặc
-     * định của MySQL coi khác dấu tiếng Việt là như nhau, xem TempleSearchService).
-     */
-    private function findTemple(Province $province, string $templeName): ?Temple
-    {
-        $isMysql = DB::getDriverName() === 'mysql';
-        $templeName = trim($templeName);
-
-        // Thử khớp CHÍNH XÁC trước (bỏ qua hoa/thường, phân biệt dấu chuẩn) — nếu
-        // không, "Chùa Phật Quang" sẽ khớp LIKE vào cả "CHÙA PHẬT QUANG PHỔ CHIẾU"
-        // hay "CHÙA PHẬT QUANG CHÁNH GIÁC" (tên khác, chỉ trùng 1 đoạn) và lấy nhầm
-        // record đầu tiên tìm được thay vì đúng chùa cùng tên tuyệt đối.
-        $exact = Temple::where('province_id', $province->id)
-            ->where(function ($q) use ($templeName, $isMysql) {
-                $isMysql
-                    ? $q->whereRaw('name COLLATE utf8mb4_0900_as_ci = ?', [$templeName])
-                    : $q->where('name', $templeName);
-            })
-            ->first();
-
-        if ($exact) {
-            return $exact;
-        }
-
-        return Temple::where('province_id', $province->id)
-            ->where(function ($q) use ($templeName, $isMysql) {
-                $isMysql
-                    ? $q->whereRaw('name COLLATE utf8mb4_0900_as_ci LIKE ?', ['%'.$templeName.'%'])
-                    : $q->where('name', 'LIKE', '%'.$templeName.'%');
-            })
-            ->first();
     }
 
     private function truncate(?string $value, int $length): ?string

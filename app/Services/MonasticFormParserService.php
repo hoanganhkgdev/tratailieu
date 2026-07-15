@@ -2,8 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\Province;
-
 /**
  * "Phiếu số 3" là mẫu chuẩn hóa của nhà nước — nhãn từng field CỐ ĐỊNH tuyệt đối,
  * giống hệt nhau giữa mọi file (đã kiểm chứng qua nhiều file docx VÀ PDF text-layer
@@ -149,9 +147,14 @@ class MonasticFormParserService
             'status'                     => $this->parseSelectedOptionsText($raw['status'] ?? ''),
         ];
 
-        [$templeName, $provinceName] = $this->splitTempleAndProvince($data['current_address'] ?? '');
-        $data['temple_name'] = $templeName;
-        $data['province_name'] = $provinceName;
+        // KHÔNG tự đoán tên tự viện/tỉnh từ "Nơi ở hiện tại" nữa — dò chuỗi con dễ
+        // trùng nhầm địa danh (đã gặp thực tế: "Ấp Ninh Thuận" — 1 địa danh CON nằm
+        // trong tỉnh An Giang — bị nhận nhầm thành tỉnh "Ninh Thuận"/"Khánh Hòa" do
+        // tỉnh Khánh Hòa có alias "Ninh Thuận" từ đợt sáp nhập tỉnh). Để trống, admin
+        // tự gán tay temple_id/province_id khi cần thay vì tin 1 heuristic không đáng
+        // tin cậy — current_address vẫn lưu nguyên văn đầy đủ.
+        $data['temple_name'] = null;
+        $data['province_name'] = null;
 
         return $data;
     }
@@ -355,34 +358,4 @@ class MonasticFormParserService
         return $parts === [] ? null : implode('; ', $parts);
     }
 
-    /**
-     * "Nơi ở hiện tại" ghi tên tự viện + địa chỉ trên cùng 1 dòng (vd "Chùa Phật
-     * Quang, số 83 Quang Trung, phường Rạch Giá, tỉnh An Giang") — tách phần tên tự
-     * viện (đoạn trước dấu phẩy đầu tiên) và tìm tên tỉnh khớp trong toàn bộ chuỗi
-     * (kể cả alias), cùng nguyên tắc với TempleSearchService::extractTrailingProvince().
-     *
-     * @return array{0: ?string, 1: ?string}
-     */
-    private function splitTempleAndProvince(string $currentAddress): array
-    {
-        if ($currentAddress === '') {
-            return [null, null];
-        }
-
-        $provinceName = null;
-
-        foreach (Province::all() as $province) {
-            foreach (array_merge([$province->name], $province->aliases ?? []) as $alias) {
-                if (mb_stripos($currentAddress, $alias) !== false) {
-                    $provinceName = $province->name;
-
-                    break 2;
-                }
-            }
-        }
-
-        $templeName = $this->clean(explode(',', $currentAddress)[0] ?? null);
-
-        return [$templeName, $provinceName];
-    }
 }
