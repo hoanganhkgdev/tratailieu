@@ -46,11 +46,6 @@ class MonasticProfile extends Model
         return $this->belongsTo(Province::class);
     }
 
-    /**
-     * Meilisearch không tự join được — phải chép sẵn tên chùa/tên tỉnh vào đây để tìm
-     * theo "tên chùa" hoạt động (MonasticSearchService), xem lý do tương tự ở
-     * Temple::toSearchableArray().
-     */
     public function toSearchableArray(): array
     {
         return [
@@ -59,7 +54,6 @@ class MonasticProfile extends Model
             'religious_name' => $this->religious_name,
             'phone'          => $this->phone,
             'id_number'      => $this->id_number,
-            'temple_name'    => $this->temple?->name,
             'province'       => $this->province?->name,
         ];
     }

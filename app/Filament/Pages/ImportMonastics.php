@@ -6,6 +6,7 @@ use App\Filament\Resources\MonasticDocumentResource;
 use App\Jobs\ProcessMonasticDocumentJob;
 use App\Models\MonasticDocument;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
@@ -41,9 +42,18 @@ class ImportMonastics extends Page implements HasForms
     {
         return $form
             ->schema([
+                Select::make('province_id')
+                    ->label('Tỉnh/Thành')
+                    ->helperText('Chỉ định tỉnh cho cả đợt upload này — hệ thống không còn tự đoán tỉnh từ nội dung phiếu (dễ nhầm địa danh con), phải chọn trước.')
+                    // Trang này KHÔNG gắn với 1 Eloquent record cụ thể (không phải
+                    // Resource form) nên ->relationship() không dùng được — phải nạp
+                    // options() trực tiếp.
+                    ->options(fn () => \App\Models\Province::orderBy('name')->pluck('name', 'id'))
+                    ->searchable()
+                    ->required(),
                 FileUpload::make('files')
                     ->label('Phiếu hồ sơ tăng ni (PDF/DOCX)')
-                    ->helperText('Mỗi file là 1 phiếu cá nhân (Phiếu số 3). Có thể chọn nhiều file cùng lúc — hệ thống tự đọc tỉnh/tự viện từ nội dung phiếu, không cần chọn trước.')
+                    ->helperText('Mỗi file là 1 phiếu cá nhân (Phiếu số 3). Có thể chọn nhiều file cùng lúc.')
                     ->multiple()
                     ->preserveFilenames()
                     ->disk('public')
@@ -61,12 +71,14 @@ class ImportMonastics extends Page implements HasForms
     {
         $state = $this->form->getState();
         $paths = $state['files'] ?? [];
+        $provinceId = $state['province_id'];
 
         foreach ($paths as $path) {
             $fileType = strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'pdf' ? 'pdf' : 'docx';
 
             $document = MonasticDocument::create([
                 'uploaded_by' => Auth::id(),
+                'province_id' => $provinceId,
                 'file_path'   => $path,
                 'file_name'   => basename($path),
                 'file_type'   => $fileType,

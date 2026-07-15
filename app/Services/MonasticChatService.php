@@ -20,7 +20,7 @@ class MonasticChatService
     public function ask(string $question, Collection $profiles): string
     {
         if ($profiles->isEmpty()) {
-            return 'Không tìm thấy tăng ni nào khớp với câu hỏi của bạn. Thử lại với họ tên, pháp danh, số điện thoại, số CCCD hoặc tên tự viện.';
+            return 'Không tìm thấy tăng ni nào khớp với câu hỏi của bạn. Thử lại với họ tên, pháp danh, số điện thoại hoặc số CCCD.';
         }
 
         if ($profiles->count() > 1) {
@@ -45,8 +45,7 @@ class MonasticChatService
                 $line .= " ({$profile->religious_name})";
             }
 
-            $line .= ' — Chùa: '.($profile->temple?->name ?? 'Chưa rõ');
-            $line .= ', Tỉnh: '.($profile->province?->name ?? 'Chưa rõ');
+            $line .= ' — Tỉnh: '.($profile->province?->name ?? 'Chưa rõ');
 
             return $line;
         });
@@ -61,8 +60,8 @@ class MonasticChatService
         $lines = [];
         $lines[] = "### {$profile->full_name}".(filled($profile->religious_name) ? " ({$profile->religious_name})" : '');
 
-        if (filled($profile->temple?->name) || filled($profile->province?->name)) {
-            $lines[] = '- Tự viện: '.($profile->temple?->name ?? 'Chưa xác định').(filled($profile->province?->name) ? " ({$profile->province->name})" : '');
+        if (filled($profile->province?->name)) {
+            $lines[] = "- Tỉnh: {$profile->province->name}";
         }
 
         if (filled($profile->birth_date)) {

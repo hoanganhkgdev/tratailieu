@@ -14,7 +14,6 @@ use App\Models\Message;
 use App\Models\MonasticDocument;
 use App\Models\MonasticProfile;
 use App\Models\Province;
-use App\Models\Temple;
 use App\Models\User;
 use App\Services\MonasticSearchService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -100,15 +99,7 @@ class MonasticModuleSmokeTest extends TestCase
     public function test_monastic_profile_view_page_renders_with_full_data(): void
     {
         $province = Province::create(['name' => 'An Giang', 'aliases' => []]);
-        $temple = Temple::create([
-            'province_id' => $province->id,
-            'code'        => '0001',
-            'name'        => 'CHÙA PHẬT QUANG',
-            'type'        => 'chua',
-            'head_monk'   => 'Thích Minh Nhẫn',
-        ]);
         $document = MonasticDocument::create([
-            'temple_id'   => $temple->id,
             'province_id' => $province->id,
             'file_path'   => 'tang-ni/an-giang/d.docx',
             'file_name'   => 'd.docx',
@@ -117,7 +108,6 @@ class MonasticModuleSmokeTest extends TestCase
         ]);
         $profile = MonasticProfile::create([
             'monastic_document_id' => $document->id,
-            'temple_id'             => $temple->id,
             'province_id'           => $province->id,
             'full_name'             => 'Từ Thành Đạt',
             'religious_name'        => 'Thích Minh Nhẫn',
@@ -129,20 +119,13 @@ class MonasticModuleSmokeTest extends TestCase
         Livewire::test(ViewMonasticProfile::class, ['record' => $profile->getRouteKey()])
             ->assertSuccessful()
             ->assertSee('Từ Thành Đạt')
-            ->assertSee('CHÙA PHẬT QUANG');
+            ->assertSee('An Giang');
     }
 
-    public function test_monastic_search_service_matches_by_full_name_religious_name_phone_and_temple(): void
+    public function test_monastic_search_service_matches_by_full_name_religious_name_phone(): void
     {
         $province = Province::create(['name' => 'An Giang', 'aliases' => []]);
-        $temple = Temple::create([
-            'province_id' => $province->id,
-            'code'        => '0001',
-            'name'        => 'CHÙA PHẬT QUANG',
-            'type'        => 'chua',
-        ]);
         $document = MonasticDocument::create([
-            'temple_id'   => $temple->id,
             'province_id' => $province->id,
             'file_path'   => 'tang-ni/an-giang/e.docx',
             'file_name'   => 'e.docx',
@@ -151,7 +134,6 @@ class MonasticModuleSmokeTest extends TestCase
         ]);
         $profile = MonasticProfile::create([
             'monastic_document_id' => $document->id,
-            'temple_id'             => $temple->id,
             'province_id'           => $province->id,
             'full_name'             => 'Từ Thành Đạt',
             'religious_name'        => 'Thích Minh Nhẫn',
@@ -165,7 +147,6 @@ class MonasticModuleSmokeTest extends TestCase
         $this->assertTrue($search->search('Thích Minh Nhẫn')->contains('id', $profile->id));
         $this->assertTrue($search->search('0384557784')->contains('id', $profile->id));
         $this->assertTrue($search->search('091094018475')->contains('id', $profile->id));
-        $this->assertTrue($search->search('CHÙA PHẬT QUANG')->contains('id', $profile->id));
         $this->assertTrue($search->search('không tồn tại xyz')->isEmpty());
     }
 
@@ -176,14 +157,7 @@ class MonasticModuleSmokeTest extends TestCase
     public function test_search_from_list_line_strips_leading_number(): void
     {
         $province = Province::create(['name' => 'An Giang', 'aliases' => []]);
-        $temple = Temple::create([
-            'province_id' => $province->id,
-            'code'        => '0002',
-            'name'        => 'CHÙA LINH SƠN',
-            'type'        => 'chua',
-        ]);
         $document = MonasticDocument::create([
-            'temple_id'   => $temple->id,
             'province_id' => $province->id,
             'file_path'   => 'tang-ni/an-giang/g.docx',
             'file_name'   => 'g.docx',
@@ -192,7 +166,6 @@ class MonasticModuleSmokeTest extends TestCase
         ]);
         $profile = MonasticProfile::create([
             'monastic_document_id' => $document->id,
-            'temple_id'             => $temple->id,
             'province_id'           => $province->id,
             'full_name'             => 'Thích Diệu Tâm',
             'religious_name'        => 'Thích Diệu Tâm',
@@ -200,7 +173,7 @@ class MonasticModuleSmokeTest extends TestCase
 
         $search = app(MonasticSearchService::class);
 
-        $result = $search->search('1. **Thích Diệu Tâm** (Thích Diệu Tâm) — Chùa: CHÙA LINH SƠN, Tỉnh: An Giang');
+        $result = $search->search('1. **Thích Diệu Tâm** (Thích Diệu Tâm) — Tỉnh: An Giang');
 
         $this->assertCount(1, $result);
         $this->assertSame($profile->id, $result->first()->id);
@@ -245,14 +218,7 @@ class MonasticModuleSmokeTest extends TestCase
     public function test_monastic_chat_ask_returns_detail_for_single_match(): void
     {
         $province = Province::create(['name' => 'An Giang', 'aliases' => []]);
-        $temple = Temple::create([
-            'province_id' => $province->id,
-            'code'        => '0001',
-            'name'        => 'CHÙA PHẬT QUANG',
-            'type'        => 'chua',
-        ]);
         $document = MonasticDocument::create([
-            'temple_id'   => $temple->id,
             'province_id' => $province->id,
             'file_path'   => 'tang-ni/an-giang/f.docx',
             'file_name'   => 'f.docx',
@@ -261,7 +227,6 @@ class MonasticModuleSmokeTest extends TestCase
         ]);
         MonasticProfile::create([
             'monastic_document_id' => $document->id,
-            'temple_id'             => $temple->id,
             'province_id'           => $province->id,
             'full_name'             => 'Từ Thành Đạt',
             'religious_name'        => 'Thích Minh Nhẫn',
@@ -272,7 +237,7 @@ class MonasticModuleSmokeTest extends TestCase
             ->set('question', 'Từ Thành Đạt')
             ->call('ask')
             ->assertSee('Từ Thành Đạt')
-            ->assertSee('CHÙA PHẬT QUANG');
+            ->assertSee('An Giang');
 
         $this->assertDatabaseHas('conversations', ['user_id' => $this->user->id, 'type' => 'monastic']);
     }

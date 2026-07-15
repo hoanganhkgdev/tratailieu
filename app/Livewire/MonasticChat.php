@@ -104,7 +104,6 @@ class MonasticChat extends Component
             'content'         => $answer,
             'monastics'       => $profiles->map(fn ($p) => [
                 'full_name'    => $p->full_name,
-                'temple'       => $p->temple?->name,
                 'province'     => $p->province?->name,
                 'download_url' => $p->document?->download_url,
             ])->all(),

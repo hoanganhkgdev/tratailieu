@@ -18,11 +18,7 @@ class MonasticSearchService
 {
     private const CANDIDATE_POOL_SIZE = 30;
 
-    /**
-     * "temple_name" không phải cột thật trên monastic_profiles (chỉ có trong Meilisearch
-     * qua toSearchableArray() denormalize từ quan hệ temple) — xem attributeValue().
-     */
-    private const SEARCHABLE_ATTRIBUTES = ['full_name', 'religious_name', 'phone', 'id_number', 'temple_name'];
+    private const SEARCHABLE_ATTRIBUTES = ['full_name', 'religious_name', 'phone', 'id_number'];
 
     public function search(string $query, int $limit = 5): Collection
     {
@@ -76,9 +72,9 @@ class MonasticSearchService
     }
 
     /**
-     * Parse dòng dạng "Họ tên (Pháp danh) — Chùa: X, Tỉnh: Y" do chính
+     * Parse dòng dạng "Họ tên (Pháp danh) — Tỉnh: Y" do chính
      * MonasticChatService::formatList() sinh ra (xem đó để hiểu định dạng chính xác,
-     * kể cả giá trị "Chưa rõ" khi thiếu chùa/tỉnh).
+     * kể cả giá trị "Chưa rõ" khi thiếu tỉnh).
      */
     private function searchFromListLine(string $query, int $limit): ?Collection
     {
@@ -87,14 +83,13 @@ class MonasticSearchService
         // cùng 1 lỗi thật đã tái hiện được ở đó.
         $clean = preg_replace('/^\d+\.\s*/', '', $clean);
 
-        if (! preg_match('/^(.+?)\s*(?:\(([^)]+)\))?\s*[—-]\s*Chùa:\s*([^,]+),\s*Tỉnh:\s*(.+)$/u', $clean, $m)) {
+        if (! preg_match('/^(.+?)\s*(?:\(([^)]+)\))?\s*[—-]\s*Tỉnh:\s*(.+)$/u', $clean, $m)) {
             return null;
         }
 
         $fullName = trim($m[1]);
         $religiousName = trim($m[2] ?? '');
-        $templeName = trim($m[3]);
-        $provinceName = trim($m[4]);
+        $provinceName = trim($m[3]);
 
         $province = $provinceName !== 'Chưa rõ' ? Province::findByNameOrAlias($provinceName) : null;
         $isMysql = DB::getDriverName() === 'mysql';
@@ -111,12 +106,7 @@ class MonasticSearchService
                     ? $q2->whereRaw('religious_name COLLATE utf8mb4_0900_as_ci LIKE ?', ['%'.$religiousName.'%'])
                     : $q2->where('religious_name', 'LIKE', '%'.$religiousName.'%');
             }))
-            ->when($templeName !== 'Chưa rõ', fn ($q) => $q->whereHas('temple', function ($q2) use ($templeName, $isMysql) {
-                $isMysql
-                    ? $q2->whereRaw('name COLLATE utf8mb4_0900_as_ci LIKE ?', ['%'.$templeName.'%'])
-                    : $q2->where('name', 'LIKE', '%'.$templeName.'%');
-            }))
-            ->with(['temple', 'province', 'document'])
+            ->with(['province', 'document'])
             ->take($limit)
             ->get();
 
@@ -138,48 +128,17 @@ class MonasticSearchService
                 'matchingStrategy'     => 'all',
             ])
             ->query(function ($builder) use ($province) {
-                $builder = $builder->with(['temple', 'province', 'document']);
+                $builder = $builder->with(['province', 'document']);
 
                 return $province ? $builder->where('province_id', $province->id) : $builder;
             })
             ->take(self::CANDIDATE_POOL_SIZE)
             ->get()
             ->filter(fn (MonasticProfile $p) => collect($attributes)->contains(
-                fn (string $attr) => $this->containsExact($this->attributeValue($p, $attr), $query)
-            ) || $this->containsSplitAcrossFields($p, $query))
+                fn (string $attr) => $this->containsExact($p->{$attr}, $query)
+            ))
             ->take($limit)
             ->values();
-    }
-
-    /**
-     * Câu hỏi ghép "họ tên + tên chùa" (vd trùng pháp danh ở 2 chùa khác nhau) — thử
-     * tách tại mọi vị trí giữa các từ, xem có cách tách nào khớp full_name/religious_name
-     * ở 1 nửa và temple_name ở nửa còn lại không (thử cả 2 chiều), cùng nguyên tắc với
-     * TempleSearchService::containsSplitAcrossFields().
-     */
-    private function containsSplitAcrossFields(MonasticProfile $profile, string $query): bool
-    {
-        $words = array_values(array_filter(preg_split('/\s+/u', $query) ?: []));
-        $count = count($words);
-
-        if ($count < 4) {
-            return false;
-        }
-
-        $nameValue = $profile->full_name;
-        $templeValue = $profile->temple?->name;
-
-        for ($i = 2; $i <= $count - 2; $i++) {
-            $left = implode(' ', array_slice($words, 0, $i));
-            $right = implode(' ', array_slice($words, $i));
-
-            if (($this->containsExact($nameValue, $left) && $this->containsExact($templeValue, $right))
-                || ($this->containsExact($templeValue, $left) && $this->containsExact($nameValue, $right))) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -202,11 +161,6 @@ class MonasticSearchService
         }
 
         return [$query, null];
-    }
-
-    private function attributeValue(MonasticProfile $profile, string $attr): ?string
-    {
-        return $attr === 'temple_name' ? $profile->temple?->name : $profile->{$attr};
     }
 
     private function containsExact(?string $haystack, string $needle): bool

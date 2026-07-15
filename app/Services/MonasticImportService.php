@@ -74,16 +74,19 @@ class MonasticImportService
 
     private function finalize(MonasticDocument $document, array $data): void
     {
-        // KHÔNG tự đoán temple_id/province_id từ địa chỉ nữa — MonasticFormParserService
-        // luôn trả province_name/temple_name = null (xem lý do ở đó: dò chuỗi con dễ
-        // trùng nhầm địa danh). Admin tự gán 2 quan hệ này bằng tay trong trang quản lý
-        // khi cần, không có gì phụ thuộc cứng vào nó lúc import.
+        // KHÔNG tự đoán tỉnh từ địa chỉ trong nội dung phiếu nữa — dò chuỗi con dễ
+        // trùng nhầm địa danh (xem MonasticFormParserService). Tỉnh giờ do người dùng
+        // CHỌN TRƯỚC lúc upload (trang Nhập hồ sơ tăng ni / lệnh tang-ni:bulk-import),
+        // đã lưu sẵn trên $document->province_id — chỉ cần chép sang profile, không
+        // cần suy luận gì thêm. Không còn field "tự viện" (temple_id) — bỏ hẳn theo
+        // yêu cầu, không có gì tự động gán nữa.
 
         // Mỗi document ứng với đúng 1 hồ sơ — updateOrCreate theo monastic_document_id
         // để bấm "Xử lý lại" cập nhật đúng bản ghi cũ thay vì tạo hồ sơ trùng lặp.
         MonasticProfile::updateOrCreate(
             ['monastic_document_id' => $document->id],
             [
+                'province_id'                => $document->province_id,
                 'full_name'                  => $data['full_name'] ?? 'Chưa xác định',
                 'religious_name'             => $data['religious_name'] ?? null,
                 'birth_date'                 => $this->toNullableDate($data['birth_date'] ?? null),

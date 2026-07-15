@@ -153,9 +153,9 @@ return [
                 'rankingRules' => ['words', 'exactness', 'proximity', 'typo', 'attribute', 'sort'],
             ],
             // Cùng nguyên tắc như 'temples' ở trên — họ tên/pháp danh ưu tiên trước,
-            // SĐT/CCCD/tên chùa là phương án mở rộng khi câu hỏi không rõ tên người.
+            // SĐT/CCCD là phương án mở rộng khi câu hỏi không rõ tên người.
             'monastic_profiles' => [
-                'searchableAttributes' => ['full_name', 'religious_name', 'phone', 'id_number', 'temple_name'],
+                'searchableAttributes' => ['full_name', 'religious_name', 'phone', 'id_number'],
                 'rankingRules' => ['words', 'exactness', 'proximity', 'typo', 'attribute', 'sort'],
             ],
         ],

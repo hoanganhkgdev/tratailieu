@@ -84,11 +84,6 @@ class MonasticProfileResource extends Resource
                             ->relationship('province', 'name')
                             ->searchable()
                             ->preload(),
-                        Forms\Components\Select::make('temple_id')
-                            ->label('Tự viện')
-                            ->relationship('temple', 'name')
-                            ->searchable()
-                            ->preload(),
                         Forms\Components\TextInput::make('monastic_cert_number')
                             ->label('Số chứng nhận Tăng ni')
                             ->maxLength(100),
@@ -196,7 +191,6 @@ class MonasticProfileResource extends Resource
                         TextEntry::make('permanent_address')->label('Địa chỉ thường trú')->placeholder('—')->columnSpanFull(),
                         TextEntry::make('current_address')->label('Nơi ở hiện tại')->placeholder('—')->columnSpanFull(),
                         TextEntry::make('province.name')->label('Tỉnh/Thành')->placeholder('—'),
-                        TextEntry::make('temple.name')->label('Tự viện')->placeholder('Chưa xác định'),
                         TextEntry::make('monastic_cert_number')->label('Số chứng nhận Tăng ni')->placeholder('—'),
                         TextEntry::make('monastic_cert_date')->label('Ngày cấp chứng nhận')->date('d/m/Y')->placeholder('—'),
                     ]),
@@ -271,10 +265,6 @@ class MonasticProfileResource extends Resource
                     ->label('Pháp danh')
                     ->searchable()
                     ->placeholder('—'),
-                Tables\Columns\TextColumn::make('temple.name')
-                    ->label('Tự viện')
-                    ->searchable()
-                    ->placeholder('Chưa xác định'),
                 Tables\Columns\TextColumn::make('province.name')
                     ->label('Tỉnh/Thành')
                     ->searchable()
@@ -294,11 +284,6 @@ class MonasticProfileResource extends Resource
                 Tables\Filters\SelectFilter::make('province_id')
                     ->label('Tỉnh/Thành')
                     ->relationship('province', 'name')
-                    ->searchable()
-                    ->preload(),
-                Tables\Filters\SelectFilter::make('temple_id')
-                    ->label('Tự viện')
-                    ->relationship('temple', 'name')
                     ->searchable()
                     ->preload(),
             ])
