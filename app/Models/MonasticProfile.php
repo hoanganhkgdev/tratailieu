@@ -57,4 +57,15 @@ class MonasticProfile extends Model
             'province'       => $this->province?->name,
         ];
     }
+
+    protected static function booted(): void
+    {
+        // Xóa 1 tăng ni phải dọn sạch cả document gốc (kéo theo file R2, xem
+        // MonasticDocument::booted()) — không thì còn sót document mồ côi (không còn
+        // profile trỏ tới) chiếm chỗ mãi trên R2/DB. Dùng delete() qua Eloquent (không
+        // phải xóa raw) để chắc chắn bắn được sự kiện deleting() phía document.
+        static::deleting(function (MonasticProfile $profile) {
+            $profile->document?->delete();
+        });
+    }
 }

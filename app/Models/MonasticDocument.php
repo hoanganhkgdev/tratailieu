@@ -46,4 +46,21 @@ class MonasticDocument extends Model
 
         return Storage::disk('public')->url($encoded);
     }
+
+    protected static function booted(): void
+    {
+        static::deleting(function (MonasticDocument $document) {
+            // Xóa document (dù trực tiếp hay dây chuyền từ MonasticProfile::booted())
+            // phải dọn theo file gốc trên R2 — không thì rác tồn mãi trên storage,
+            // không ai xóa lại được nữa vì mất luôn đường dẫn sau khi record biến mất.
+            Storage::disk('public')->delete($document->file_path);
+
+            // monastic_profiles.monastic_document_id có cascadeOnDelete() ở tầng DB —
+            // xóa document TRỰC TIẾP (không qua profile) sẽ tự xóa row profile liên
+            // quan, nhưng đó là cascade DB thuần, KHÔNG bắn sự kiện Eloquent nên Scout
+            // không tự gỡ khỏi Meilisearch được — gọi thẳng unsearchable() ở đây để
+            // đảm bảo không sót rác trong index dù xóa từ phía nào.
+            $document->profile?->unsearchable();
+        });
+    }
 }

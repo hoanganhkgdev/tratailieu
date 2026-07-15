@@ -241,4 +241,63 @@ class MonasticModuleSmokeTest extends TestCase
 
         $this->assertDatabaseHas('conversations', ['user_id' => $this->user->id, 'type' => 'monastic']);
     }
+
+    /**
+     * Yêu cầu: xóa 1 tăng ni phải dọn sạch cả 3 nơi — record DB, file gốc trên R2,
+     * và mục trong Meilisearch — không để sót rác ở đâu (xem
+     * MonasticProfile::booted()/MonasticDocument::booted()).
+     */
+    public function test_deleting_monastic_profile_cleans_up_document_file_and_search_index(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        \Illuminate\Support\Facades\Storage::disk('public')->put('tang-ni/xoa-test.docx', 'noi dung gia');
+
+        $document = MonasticDocument::create([
+            'file_path' => 'tang-ni/xoa-test.docx',
+            'file_name' => 'xoa-test.docx',
+            'file_type' => 'docx',
+            'status'    => 'ready',
+        ]);
+        $profile = MonasticProfile::create([
+            'monastic_document_id' => $document->id,
+            'full_name'             => 'Cần Xóa Test',
+        ]);
+
+        $this->assertTrue(\Illuminate\Support\Facades\Storage::disk('public')->exists('tang-ni/xoa-test.docx'));
+
+        $profile->delete();
+
+        $this->assertDatabaseMissing('monastic_profiles', ['id' => $profile->id]);
+        $this->assertDatabaseMissing('monastic_documents', ['id' => $document->id]);
+        $this->assertFalse(\Illuminate\Support\Facades\Storage::disk('public')->exists('tang-ni/xoa-test.docx'));
+    }
+
+    /**
+     * Chiều ngược lại: xóa document TRỰC TIẾP (không qua profile) — DB tự cascade xóa
+     * profile (monastic_document_id có cascadeOnDelete()), nhưng đó là cascade DB
+     * thuần không bắn sự kiện Eloquent, nên vẫn phải tự gọi unsearchable() để không
+     * sót rác trong Meilisearch (xem MonasticDocument::booted()).
+     */
+    public function test_deleting_monastic_document_directly_also_cleans_up_file_and_cascades_profile(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        \Illuminate\Support\Facades\Storage::disk('public')->put('tang-ni/xoa-test-2.docx', 'noi dung gia');
+
+        $document = MonasticDocument::create([
+            'file_path' => 'tang-ni/xoa-test-2.docx',
+            'file_name' => 'xoa-test-2.docx',
+            'file_type' => 'docx',
+            'status'    => 'ready',
+        ]);
+        $profile = MonasticProfile::create([
+            'monastic_document_id' => $document->id,
+            'full_name'             => 'Cần Xóa Test 2',
+        ]);
+
+        $document->delete();
+
+        $this->assertDatabaseMissing('monastic_documents', ['id' => $document->id]);
+        $this->assertDatabaseMissing('monastic_profiles', ['id' => $profile->id]);
+        $this->assertFalse(\Illuminate\Support\Facades\Storage::disk('public')->exists('tang-ni/xoa-test-2.docx'));
+    }
 }

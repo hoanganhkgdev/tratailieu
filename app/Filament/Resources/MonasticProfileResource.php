@@ -290,6 +290,9 @@ class MonasticProfileResource extends Resource
             ->actions([
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
+                // Xóa 1 tăng ni ở đây tự dọn theo document gốc + file R2 + gỡ khỏi
+                // Meilisearch, xem MonasticProfile::booted()/MonasticDocument::booted().
+                Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
