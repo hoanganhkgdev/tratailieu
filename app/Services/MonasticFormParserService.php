@@ -270,19 +270,32 @@ class MonasticFormParserService
 
         $value = trim($value);
 
-        // Số thứ tự mục kế tiếp (vd "2.") hay dính vào cuối giá trị field này do
-        // locateLabels() cố ý không match số thứ tự (xem lý do ở đó) — dọn ở đây an
-        // toàn hơn nhiều so với cố match số thứ tự lúc định vị nhãn. CHỈ 1 chữ số
-        // (không phải 1-2) — toàn bộ số thứ tự mục trong phiếu này đều từ 1-9 (số có
-        // 2 chữ số trở lên không xuất hiện); nếu cho phép 2 chữ số, regex có thể "ăn
-        // nhầm" 2 chữ số CUỐI của 1 giá trị hợp lệ kết thúc bằng số dính liền số thứ
-        // tự mục kế tiếp (đã tái hiện thực tế: "12/12" + "2." dính liền bị hiểu nhầm
-        // thành "12/1" + "22." thay vì đúng "12/12" + "2.").
-        $value = preg_replace('/\d\.\s*$/u', '', $value) ?? $value;
+        // Số thứ tự mục kế tiếp (vd "2." hoặc "12.") hay dính vào cuối giá trị field
+        // này do locateLabels() cố ý không match số thứ tự (xem lý do ở đó) — dọn ở
+        // đây an toàn hơn nhiều so với cố match số thứ tự lúc định vị nhãn.
+        //
+        // 2 trường hợp KHÁC NHAU, xử lý khác nhau:
+        // 1. Có khoảng trắng/xuống dòng ngăn cách trước số thứ tự (vd "...An Giang
+        //    \n12. Số chứng nhận...") — AN TOÀN để bỏ nhiều chữ số, vì khoảng trắng
+        //    chứng tỏ số đó tách biệt hẳn khỏi nội dung giá trị thật (đã gặp thực tế:
+        //    1 số phiên bản phiếu đánh số liên tục tới 2 chữ số như "12.", nếu chỉ bỏ
+        //    đúng 1 chữ số sẽ sót lại 1 chữ số lẻ ở cuối, vd "...An Giang" + "1" thừa).
+        // 2. KHÔNG có khoảng trắng, số dính liền ngay sau nội dung (vd "12/12" +
+        //    "2." dính liền không cách) — chỉ dám bỏ ĐÚNG 1 chữ số, vì không có gì
+        //    phân biệt được đâu là số thứ tự đâu là số cuối của giá trị thật (đã tái
+        //    hiện thực tế: cho phép 2 chữ số ở đây làm "12/12" + "2." bị hiểu nhầm
+        //    thành "12/1" + "22.").
+        $withoutSpacedNumber = preg_replace('/\s\d{1,3}\.\s*$/u', '', $value) ?? $value;
+        $value = $withoutSpacedNumber !== $value
+            ? $withoutSpacedNumber
+            : (preg_replace('/\d\.\s*$/u', '', $value) ?? $value);
 
-        // Field bỏ trống trên phiếu thường để lại dấu chấm lửng "...." hoặc chỉ
-        // khoảng trắng/xuống dòng — coi như null thay vì lưu chuỗi rác.
-        $value = trim(trim($value), ". \t\n\r\0\x0B");
+        // Field bỏ trống trên phiếu thường để lại chuỗi placeholder toàn dấu chấm
+        // "...." HOẶC dấu ba chấm Unicode "……" lặp lại (tuỳ file — đã kiểm chứng thực
+        // tế cả 2 kiểu cùng tồn tại giữa các file khác nhau, "\x{2026}" là ký tự
+        // ellipsis U+2026, KHÁC hẳn 3 dấu chấm "." liên tiếp về mặt byte nên trim()
+        // thường không strip được) — coi như null thay vì lưu chuỗi rác.
+        $value = preg_replace('/^[.\x{2026}\s]+|[.\x{2026}\s]+$/u', '', $value) ?? $value;
 
         return $value === '' ? null : $value;
     }

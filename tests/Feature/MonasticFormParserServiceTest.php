@@ -78,4 +78,26 @@ TEXT;
 
         $this->assertNull($data);
     }
+
+    /**
+     * Đã tái hiện lỗi thật: 1 số file dùng dấu ba chấm Unicode "……" (U+2026) lặp lại
+     * làm placeholder ô trống thay vì dấu chấm "." thường — trim() cũ không strip
+     * được (khác byte hẳn), khiến field trống bị lưu nguyên chuỗi "……………" rác thay vì
+     * null. Field "Từ ngày – Đến ngày" cũng bị lẫn số thứ tự "12." của field liền sau
+     * do 1 số file đánh số liên tục 2 chữ số (không chỉ 1-9 như file mẫu gốc).
+     */
+    public function test_ellipsis_placeholder_and_multi_digit_numbering_are_cleaned(): void
+    {
+        $text = str_replace(
+            ['Kinh', '16/08/1972'],
+            ["\u{2026}\u{2026}\u{2026}\u{2026}\u{2026}\u{2026}\u{2026}\u{2026}\u{2026}\u{2026}", '……………'],
+            self::SAMPLE_TEXT
+        );
+
+        $data = app(MonasticFormParserService::class)->parse($text);
+
+        $this->assertNotNull($data);
+        $this->assertNull($data['ethnicity']);
+        $this->assertNull($data['birth_date']);
+    }
 }
