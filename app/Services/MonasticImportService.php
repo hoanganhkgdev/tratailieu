@@ -10,6 +10,7 @@ use Gemini\Data\ThinkingConfig;
 use Gemini\Enums\MimeType as GeminiMimeType;
 use Gemini\Enums\ResponseMimeType;
 use Gemini\Laravel\Facades\Gemini;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
@@ -21,7 +22,9 @@ use Illuminate\Support\Str;
  * File scan/chụp ảnh (không có lớp text) thì regex bó tay — bắt buộc cần AI đọc ảnh
  * (vision). Dùng Gemini ở chế độ FREE TIER (key tạo trên project KHÔNG bật billing,
  * xem README/nhật ký trao đổi) — cùng độ chính xác đã kiểm chứng trước đó, chỉ khác
- * bị giới hạn tốc độ (~15 request/phút) thay vì tính tiền theo dùng thật.
+ * bị giới hạn tốc độ RẤT THẤP (đo thực tế CHỈ 5 request/phút cho model
+ * gemini-3.5-flash, không phải ~15 như ước tính ban đầu) thay vì tính tiền theo dùng
+ * thật — xem throttleGeminiCall() để biết cách ép giãn cách giữa các lần gọi.
  *
  * KHÔNG còn field "tự viện" và KHÔNG tự đoán tỉnh qua AI nữa — tỉnh do người dùng CHỌN
  * TRƯỚC lúc upload (đã lưu sẵn trên $document->province_id), xem finalize().
@@ -116,43 +119,50 @@ class MonasticImportService
 
         // Mỗi document ứng với đúng 1 hồ sơ — updateOrCreate theo monastic_document_id
         // để bấm "Xử lý lại" cập nhật đúng bản ghi cũ thay vì tạo hồ sơ trùng lặp.
+        //
+        // truncate() theo ĐÚNG giới hạn cột string tương ứng cho MỌI field (không chỉ
+        // id_number/phone như trước) — đã gặp thực tế 1 file định dạng lạ (lẫn ký tự
+        // "●") làm regex xác định sai ranh giới field, khiến "gender" (cột string(20))
+        // nuốt luôn nội dung của nhiều field khác, dài tới mức MySQL từ chối insert
+        // (lỗi "Data too long"). Field text (current_position, notes...) không giới
+        // hạn thực tế nên không cần truncate.
         MonasticProfile::updateOrCreate(
             ['monastic_document_id' => $document->id],
             [
                 'province_id'                => $document->province_id,
-                'full_name'                  => $data['full_name'] ?? 'Chưa xác định',
-                'religious_name'             => $data['religious_name'] ?? null,
+                'full_name'                  => $this->truncate($data['full_name'] ?? null, 255) ?? 'Chưa xác định',
+                'religious_name'             => $this->truncate($data['religious_name'] ?? null, 255),
                 'birth_date'                 => $this->toNullableDate($data['birth_date'] ?? null),
-                'gender'                     => $data['gender'] ?? null,
-                'ethnicity'                  => $data['ethnicity'] ?? null,
-                'nationality'                => $data['nationality'] ?? null,
+                'gender'                     => $this->truncate($data['gender'] ?? null, 20),
+                'ethnicity'                  => $this->truncate($data['ethnicity'] ?? null, 100),
+                'nationality'                => $this->truncate($data['nationality'] ?? null, 100),
                 'id_number'                  => $this->truncate($data['id_number'] ?? null, 30),
                 'id_issued_date'             => $this->toNullableDate($data['id_issued_date'] ?? null),
-                'id_issued_place'            => $data['id_issued_place'] ?? null,
-                'hometown'                   => $data['hometown'] ?? null,
-                'permanent_address'          => $data['permanent_address'] ?? null,
-                'current_address'            => $data['current_address'] ?? null,
-                'religion'                   => $data['religion'] ?? null,
-                'religious_org'              => $data['religious_org'] ?? null,
-                'sect'                       => $data['sect'] ?? null,
+                'id_issued_place'            => $this->truncate($data['id_issued_place'] ?? null, 255),
+                'hometown'                   => $this->truncate($data['hometown'] ?? null, 255),
+                'permanent_address'          => $this->truncate($data['permanent_address'] ?? null, 255),
+                'current_address'            => $this->truncate($data['current_address'] ?? null, 255),
+                'religion'                   => $this->truncate($data['religion'] ?? null, 100),
+                'religious_org'              => $this->truncate($data['religious_org'] ?? null, 255),
+                'sect'                       => $this->truncate($data['sect'] ?? null, 255),
                 'classification'             => $this->toClassificationArray($data['classification'] ?? null),
                 'current_position'           => $data['current_position'] ?? null,
                 'ordination_date'            => $this->toNullableDate($data['ordination_date'] ?? null),
                 'concurrent_position'        => $data['concurrent_position'] ?? null,
-                'activity_scope'             => $data['activity_scope'] ?? null,
+                'activity_scope'             => $this->truncate($data['activity_scope'] ?? null, 255),
                 'notes'                      => $data['notes'] ?? null,
-                'education_level'            => $data['education_level'] ?? null,
-                'professional_qualification' => $data['professional_qualification'] ?? null,
-                'religious_education_level'  => $data['religious_education_level'] ?? null,
+                'education_level'            => $this->truncate($data['education_level'] ?? null, 255),
+                'professional_qualification' => $this->truncate($data['professional_qualification'] ?? null, 255),
+                'religious_education_level'  => $this->truncate($data['religious_education_level'] ?? null, 255),
                 'training_institutions'      => $data['training_institutions'] ?? null,
-                'languages'                  => $data['languages'] ?? null,
+                'languages'                  => $this->truncate($data['languages'] ?? null, 255),
                 'activity_history'           => $data['activity_history'] ?? null,
                 'commendation_discipline'    => $data['commendation_discipline'] ?? null,
                 'violations'                 => $data['violations'] ?? null,
-                'congress_term'              => $data['congress_term'] ?? null,
+                'congress_term'              => $this->truncate($data['congress_term'] ?? null, 255),
                 'phone'                      => $this->truncate($data['phone'] ?? null, 30),
-                'email'                      => $data['email'] ?? null,
-                'status'                     => $data['status'] ?? null,
+                'email'                      => $this->truncate($data['email'] ?? null, 255),
+                'status'                     => $this->truncate($data['status'] ?? null, 255),
             ]
         );
 
@@ -311,11 +321,42 @@ PROMPT;
     }
 
     /**
-     * Ngoài JSON bị cắt cụt, free tier còn hay gặp lỗi tạm thời do giới hạn tốc độ
-     * (429/"quota exceeded") hoặc quá tải chung ("currently experiencing high
-     * demand") — bắt luôn \Throwable vì cả 3 loại lỗi đều đáng thử lại, chỉ giới hạn
-     * cứng MAX_JSON_RETRIES lần nên không sợ lặp vô hạn. Backoff tăng dần (1s, 2s,
-     * 3s...) dài hơn bản cũ vì free tier cần chờ lâu hơn để rate limit "nguội" lại.
+     * Quota free tier đo được thực tế CHỈ 5 request/phút — TÍNH CHUNG cho toàn bộ API
+     * key, không phải riêng từng worker (đã gặp thực tế: 3 worker cùng lúc gọi AI làm
+     * 76/546 file bị từ chối ngay "exceeded your current quota"). Ép giãn cách tối
+     * thiểu giữa 2 lần gọi Gemini bất kỳ (dùng Cache — dùng chung được giữa nhiều
+     * worker/process khác nhau) để KHÔNG BAO GIỜ vượt quota ngay từ đầu, thay vì cứ
+     * gọi dồn dập rồi trông chờ retry vá lại.
+     *
+     * 60s / 5 request = 12s/request tối thiểu — dùng 13s để có biên an toàn.
+     */
+    private const MIN_SECONDS_BETWEEN_GEMINI_CALLS = 13;
+
+    private function throttleGeminiCall(): void
+    {
+        Cache::lock('gemini-vision-throttle', 20)->block(60, function () {
+            $lastCallAt = Cache::get('gemini-vision-last-call-at');
+
+            if ($lastCallAt !== null) {
+                $elapsed = microtime(true) - $lastCallAt;
+                $remaining = self::MIN_SECONDS_BETWEEN_GEMINI_CALLS - $elapsed;
+
+                if ($remaining > 0) {
+                    usleep((int) ($remaining * 1_000_000));
+                }
+            }
+
+            Cache::put('gemini-vision-last-call-at', microtime(true), 120);
+        });
+    }
+
+    /**
+     * Ngoài JSON bị cắt cụt, free tier còn hay gặp lỗi tạm thời do quá tải chung
+     * ("currently experiencing high demand") — bắt \Throwable vì cả 2 loại lỗi đều
+     * đáng thử lại, chỉ giới hạn cứng MAX_JSON_RETRIES lần nên không sợ lặp vô hạn.
+     * Riêng lỗi VƯỢT QUOTA thật sự thì throttleGeminiCall() đã ngăn từ đầu (không còn
+     * dựa vào retry để "vá" quota nữa — quota cần chờ tới phút sau mới có lại, backoff
+     * ngắn không giải quyết được gì).
      *
      * @param  callable(): mixed  $makeResponse
      */
@@ -324,6 +365,8 @@ PROMPT;
         $lastException = null;
 
         for ($attempt = 1; $attempt <= self::MAX_JSON_RETRIES; $attempt++) {
+            $this->throttleGeminiCall();
+
             try {
                 return $this->parseGeminiResponse($document, $makeResponse());
             } catch (\Throwable $e) {
