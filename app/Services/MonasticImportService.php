@@ -321,16 +321,13 @@ PROMPT;
     }
 
     /**
-     * Quota free tier đo được thực tế CHỈ 5 request/phút — TÍNH CHUNG cho toàn bộ API
-     * key, không phải riêng từng worker (đã gặp thực tế: 3 worker cùng lúc gọi AI làm
-     * 76/546 file bị từ chối ngay "exceeded your current quota"). Ép giãn cách tối
-     * thiểu giữa 2 lần gọi Gemini bất kỳ (dùng Cache — dùng chung được giữa nhiều
-     * worker/process khác nhau) để KHÔNG BAO GIỜ vượt quota ngay từ đầu, thay vì cứ
-     * gọi dồn dập rồi trông chờ retry vá lại.
-     *
-     * 60s / 5 request = 12s/request tối thiểu — dùng 13s để có biên an toàn.
+     * Đã chuyển sang API key CÓ BILLING (trả phí thật, ~260đ/hồ sơ đo thực tế) — không
+     * còn bị chặn cứng 5 request/phút như free tier nữa, giới hạn paid tier cao hơn
+     * rất nhiều so với 3 worker của mình có thể tạo ra. Vẫn giữ giãn cách nhỏ (dùng
+     * Cache — dùng chung được giữa nhiều worker/process) chỉ để tránh spike đồng thời
+     * từ 3 worker cùng lúc, không phải để né quota nữa.
      */
-    private const MIN_SECONDS_BETWEEN_GEMINI_CALLS = 13;
+    private const MIN_SECONDS_BETWEEN_GEMINI_CALLS = 2;
 
     private function throttleGeminiCall(): void
     {
