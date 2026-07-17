@@ -53,6 +53,15 @@ class MonasticImportService
      */
     private const MAX_JSON_RETRIES = 3;
 
+    /**
+     * "Phiếu số 3" chuẩn chỉ có 3 trang và LUÔN nằm đầu file — các trang sau là giấy
+     * tờ đính kèm (hình CCCD, chứng nhận, quyết định bổ nhiệm...) không chứa field
+     * nào cần trích. Đo thực tế 2 tỉnh đầu: 17% chi phí vision đổ vào các trang thừa
+     * này (cực đoan nhất: 1 file 51 trang tốn 56.720 token thay vì ~4.700). Chỉ gửi
+     * 4 trang đầu (3 trang phiếu + 1 dự phòng phòng khi có trang bìa/lệch trang).
+     */
+    private const MAX_VISION_PAGES = 4;
+
     public function process(MonasticDocument $document): void
     {
         $data = null;
@@ -121,7 +130,7 @@ class MonasticImportService
             throw new PermanentImportException('File PDF không có lớp text và cũng không trích được ảnh trang nào để đọc bằng AI.');
         }
 
-        return $this->analyzeFromImages($document, $images);
+        return $this->analyzeFromImages($document, array_slice($images, 0, self::MAX_VISION_PAGES));
     }
 
     private function finalize(MonasticDocument $document, array $data): void
