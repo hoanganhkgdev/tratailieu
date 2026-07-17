@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\PermanentImportException;
 use App\Models\MonasticDocument;
 use App\Models\MonasticProfile;
 use Gemini\Data\Blob;
@@ -93,18 +94,23 @@ class MonasticImportService
                     // docx không có kiểu lỗi font này, "không khớp mẫu" ở đó là thật).
                     $data = $this->processScannedPdf($document);
                 } elseif ($data === null) {
-                    throw new \RuntimeException('Không nhận diện được đúng mẫu "Phiếu số 3" (nhãn field không khớp) — kiểm tra lại định dạng file hoặc nhập tay.');
+                    throw new PermanentImportException('Không nhận diện được đúng mẫu "Phiếu số 3" (nhãn field không khớp) — kiểm tra lại định dạng file hoặc nhập tay.');
                 }
             }
 
             $this->finalize($document, $data);
-        } catch (\Throwable $e) {
+        } catch (PermanentImportException $e) {
+            // Lỗi thật sự về dữ liệu/định dạng — thử lại bao nhiêu lần cũng vậy, đánh
+            // dấu failed ngay, không cần ProcessMonasticDocumentJob retry làm gì.
             $document->update([
                 'status'         => 'failed',
                 'error_message'  => $e->getMessage(),
                 'extracted_json' => $data,
             ]);
         }
+        // Các lỗi KHÁC (Gemini quá tải, JSON cắt cụt, quota...) CỐ Ý không bắt ở đây —
+        // để bay thẳng ra ProcessMonasticDocumentJob, cho Laravel tự retry sau vài phút
+        // (xem $tries/backoff() ở đó) thay vì chờ người vào tay requeue như trước.
     }
 
     private function processScannedPdf(MonasticDocument $document): array
@@ -112,7 +118,7 @@ class MonasticImportService
         $images = $this->parser->extractPageImages($document->file_path);
 
         if (empty($images)) {
-            throw new \RuntimeException('File PDF không có lớp text và cũng không trích được ảnh trang nào để đọc bằng AI.');
+            throw new PermanentImportException('File PDF không có lớp text và cũng không trích được ảnh trang nào để đọc bằng AI.');
         }
 
         return $this->analyzeFromImages($document, $images);
