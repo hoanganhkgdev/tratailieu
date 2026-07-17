@@ -159,6 +159,45 @@ class DocumentParserService
     }
 
     /**
+     * Phương án cuối khi extractPageImages() không lấy được ảnh nhúng nào: render
+     * thẳng trang PDF thành ảnh JPEG bằng pdftoppm (poppler-utils, đã cài trên VPS).
+     * Cần thiết vì extractPageImages() chỉ lấy được ảnh nhúng dạng chuẩn (JPEG/JPX)
+     * — gặp thực tế file scan nén ảnh bằng FlateDecode (bitmap thô, getimagesizefromstring
+     * không nhận ra) thì trả về rỗng dù trang hiển thị bình thường. Render trang thì
+     * bất chấp định dạng bên trong, luôn ra đúng những gì mắt thấy.
+     *
+     * @return array<int, array{data: string, mime: string}>
+     */
+    public function rasterizePages(string $filePath, int $maxPages): array
+    {
+        $tmpPath = tempnam(sys_get_temp_dir(), 'monastic_raster_').'.pdf';
+        file_put_contents($tmpPath, Storage::disk('public')->get($filePath));
+        $outPrefix = $tmpPath.'_page';
+
+        try {
+            // -r 150: đủ nét để đọc chữ viết tay (~1240x1754px cho khổ A4), token
+            // Gemini không đổi theo kích thước ảnh trong khoảng này (đã đo trước đây).
+            exec(sprintf(
+                'pdftoppm -jpeg -r 150 -f 1 -l %d %s %s 2>/dev/null',
+                $maxPages,
+                escapeshellarg($tmpPath),
+                escapeshellarg($outPrefix)
+            ));
+
+            $images = [];
+
+            foreach (glob($outPrefix.'-*.jpg') ?: [] as $pagePath) {
+                $images[] = ['data' => file_get_contents($pagePath), 'mime' => 'image/jpeg'];
+                @unlink($pagePath);
+            }
+
+            return $images;
+        } finally {
+            @unlink($tmpPath);
+        }
+    }
+
+    /**
      * 2 việc gộp chung 1 bước (đều cần Imagick nên xử lý 1 lần cho gọn, tránh decode
      * lại ảnh 2 lượt):
      *

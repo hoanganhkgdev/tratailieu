@@ -127,6 +127,12 @@ class MonasticImportService
         $images = $this->parser->extractPageImages($document->file_path);
 
         if (empty($images)) {
+            // Ảnh trong PDF nén dạng lạ (gặp thực tế: FlateDecode) nên không trích
+            // được ảnh nhúng — render thẳng trang thành JPEG, xem rasterizePages().
+            $images = $this->parser->rasterizePages($document->file_path, self::MAX_VISION_PAGES);
+        }
+
+        if (empty($images)) {
             throw new PermanentImportException('File PDF không có lớp text và cũng không trích được ảnh trang nào để đọc bằng AI.');
         }
 
