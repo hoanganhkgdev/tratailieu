@@ -333,7 +333,12 @@ PROMPT;
             );
         }
 
-        return $this->generateWithRetry($document, fn () => Gemini::generativeModel(model: 'gemini-flash-latest')
+        // Đổi từ gemini-flash-latest (= gemini-3.5-flash) sang gemini-3-flash-preview
+        // theo yêu cầu 17/07/2026: bản 3.5 bị quá tải "high demand" toàn cục liên tục
+        // (đã kiểm chứng: text thuần cũng lỗi, model khác cùng key vẫn chạy). LƯU Ý
+        // đánh đổi: trên file mẫu viết tay, bản này từng đọc "Hùng" thay vì "Hưng" —
+        // kém hơn bản 3.5 một chút về chữ viết tay khó.
+        return $this->generateWithRetry($document, fn () => Gemini::generativeModel(model: 'gemini-3-flash-preview')
             ->withGenerationConfig(new GenerationConfig(
                 // BẮT BUỘC — nếu không set, model tự bật "thinking" ngầm (đã kiểm chứng
                 // thực tế: model mặc định sinh ~1900 token "thoughts" ẩn dù không cần).
