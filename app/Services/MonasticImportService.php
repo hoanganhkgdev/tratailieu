@@ -82,7 +82,17 @@ class MonasticImportService
                 $clarified = $this->clarifyCheckboxes($text);
                 $data = $this->formParser->parse($clarified);
 
-                if ($data === null) {
+                if ($data === null && $document->file_type === 'pdf') {
+                    // Gặp thực tế (lô Cà Mau): PDF có lớp text ĐỦ DÀI và hợp lệ UTF-8
+                    // (qua được $textUsable) nhưng font nhúng cũ (kiểu VNI/.VnTime) không
+                    // có bảng ánh xạ Unicode đúng — pdfparser đọc ra chữ hoàn toàn biến
+                    // dạng ("PHIEU THU THAP" thay vì "PHIẾU THU THẬP"), không nhãn field
+                    // nào khớp được. Trang vẫn hiển thị đúng bằng mắt (chỉ lỗi khi trích
+                    // xuất text), nên đọc bằng ảnh (vision) vẫn ra đúng — fallback sang đó
+                    // thay vì báo lỗi luôn. Chỉ áp dụng cho PDF, không áp dụng cho docx (
+                    // docx không có kiểu lỗi font này, "không khớp mẫu" ở đó là thật).
+                    $data = $this->processScannedPdf($document);
+                } elseif ($data === null) {
                     throw new \RuntimeException('Không nhận diện được đúng mẫu "Phiếu số 3" (nhãn field không khớp) — kiểm tra lại định dạng file hoặc nhập tay.');
                 }
             }
