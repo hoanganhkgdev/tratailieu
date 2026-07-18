@@ -118,4 +118,27 @@ TEXT;
         $this->assertNotNull($data);
         $this->assertSame('Phật giáo', $data['religion']);
     }
+
+    /**
+     * Tái hiện lô Gia Lai thực tế: phần mềm sinh docx tách chữ thành nhiều run KHÔNG
+     * có dấu cách — nhãn dính liền ("Họvàtênkhaisinh:") và lệch cả hoa thường ("Tăng
+     * Ni" thay vì "Tăng ni"). Nhãn phải khớp được (khoảng trắng tùy chọn + fallback
+     * không phân biệt hoa thường), và nhãn biên "Số chứng nhận Tăng ni" vẫn phải chặn
+     * đúng để địa chỉ không bị dính đuôi.
+     */
+    public function test_matches_labels_when_docx_drops_spaces_and_changes_case(): void
+    {
+        $text = str_replace(
+            ['Họ và tên khai sinh:', 'Số chứng nhận Tăng ni:'],
+            ['Họvàtênkhaisinh:', 'SốchứngnhậnTăng Ni:'],
+            self::SAMPLE_TEXT
+        );
+
+        $data = app(MonasticFormParserService::class)->parse($text);
+
+        $this->assertNotNull($data);
+        $this->assertSame('TỪ THÀNH ĐẠT', $data['full_name']);
+        $this->assertSame('Phật giáo', $data['religion']);
+        $this->assertStringNotContainsString('Tăng', $data['current_address']);
+    }
 }

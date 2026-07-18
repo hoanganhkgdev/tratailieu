@@ -185,9 +185,16 @@ class MonasticFormParserService
             // ..."), việc match "\d+\." sẽ "ăn nhầm" luôn chữ số cuối "2" của giá trị
             // "12/12" thành số thứ tự — đã tái hiện thực tế bug này. Để số thứ tự lẫn
             // vào cuối giá trị field trước rồi dọn bằng clean() còn an toàn hơn nhiều.
-            $pattern = '/\*?\s*'.$this->fuzzyPattern($label).'/u';
+            // Khớp ĐÚNG hoa thường trước — với nhãn ngắn kiểu "Tôn giáo", hoa thường
+            // là thứ DUY NHẤT phân biệt nhãn thật với cùng cụm chữ nằm trong nhãn khác
+            // ("Tên trong tôn giáo", tiêu đề "...TÔN GIÁO"). Chỉ khi trượt hẳn mới nới
+            // sang không phân biệt hoa thường (cờ "i" + "u" để case-fold đúng chữ có
+            // dấu) — một số file gõ nhãn hoa thường lệch bản chuẩn (gặp thực tế lô Gia
+            // Lai: "Tăng Ni" thay vì "Tăng ni" làm trượt nhãn biên số chứng nhận).
+            $pattern = '\*?\s*'.$this->fuzzyPattern($label);
 
-            if (! preg_match($pattern, $text, $m, PREG_OFFSET_CAPTURE)) {
+            if (! preg_match('/'.$pattern.'/u', $text, $m, PREG_OFFSET_CAPTURE)
+                && ! preg_match('/'.$pattern.'/iu', $text, $m, PREG_OFFSET_CAPTURE)) {
                 continue;
             }
 
@@ -217,9 +224,10 @@ class MonasticFormParserService
         // SECTION_HEADERS. "valueStart" không dùng tới (không field nào tham chiếu
         // key "_section*"), gán bằng "start" cho hợp lệ kiểu dữ liệu.
         foreach (self::SECTION_HEADERS as $i => $header) {
-            $pattern = '/'.$this->fuzzyPattern($header).'/u';
+            $pattern = $this->fuzzyPattern($header);
 
-            if (preg_match($pattern, $text, $m, PREG_OFFSET_CAPTURE)) {
+            if (preg_match('/'.$pattern.'/u', $text, $m, PREG_OFFSET_CAPTURE)
+                || preg_match('/'.$pattern.'/iu', $text, $m, PREG_OFFSET_CAPTURE)) {
                 $positions["_section{$i}"] = ['start' => $m[0][1], 'valueStart' => $m[0][1]];
             }
         }
@@ -234,9 +242,17 @@ class MonasticFormParserService
      */
     private function fuzzyPattern(string $label): string
     {
+        // Loại hẳn khoảng trắng của nhãn khỏi pattern: \s* giữa từng ký tự đã cho
+        // phép khoảng trắng THỪA ở bất kỳ đâu, việc bỏ ký tự cách gốc làm khoảng
+        // trắng thành TÙY CHỌN hoàn toàn — chịu được cả file docx bị MẤT khoảng
+        // trắng giữa các chữ trong nhãn ("Họvàtênkhaisinh:") do phần mềm sinh file
+        // tách chữ thành nhiều run không có dấu cách (gặp thực tế cả lô Gia Lai).
         return implode('\s*', array_map(
             fn (string $char) => preg_quote($char, '/'),
-            mb_str_split($label)
+            array_values(array_filter(
+                mb_str_split($label),
+                fn (string $char) => $char !== ' '
+            ))
         ));
     }
 
